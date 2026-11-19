@@ -10,7 +10,6 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -54,11 +53,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -156,14 +154,12 @@ fun BoxScope.FloatingStxAiOverlay(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.img_stx_hologram),
-                            contentDescription = "STX AI Bot",
-                            contentScale = ContentScale.Crop,
+                        StxHologramOrbAvatar(
+                            isSpeaking = state.aiSpeaking,
+                            isListening = voiceListening,
                             modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .border(1.dp, HudCyan, CircleShape)
+                                .size(30.dp)
+                                .border(1.dp, if (state.aiSpeaking) HudIce else HudCyan, CircleShape)
                         )
                         Column {
                             Text(
@@ -178,12 +174,17 @@ fun BoxScope.FloatingStxAiOverlay(
                             Text(
                                 text = when {
                                     voiceListening -> "MIC LISTENING…"
+                                    state.aiSpeaking -> "VOCALIZING REPLY…"
                                     state.aiThinking -> "PROCESSING COMMAND…"
                                     else -> "GEMINI 3.8 FLASH · IN-APP TASKS"
                                 },
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontSize = 8.5.sp,
-                                color = if (voiceListening || state.aiThinking) HudCrimson else HudCyan,
+                                color = when {
+                                    voiceListening || state.aiThinking -> HudCrimson
+                                    state.aiSpeaking -> HudIce
+                                    else -> HudCyan
+                                },
                                 maxLines = 1
                             )
                         }
@@ -437,30 +438,39 @@ fun BoxScope.FloatingStxAiOverlay(
         }
     }
 
-    // Floating Corner STX AI Bot Orb (always reachable above bottom bar)
+    // Floating Corner STX AI Bot Orb (always reachable above bottom bar — zero black background)
     Box(
         modifier = Modifier
             .align(Alignment.BottomEnd)
             .padding(end = 14.dp, bottom = 58.dp)
-            .size(50.dp)
+            .size(52.dp)
             .clip(CircleShape)
-            .background(Color(0xEE040C16))
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(
+                        (if (voiceListening) HudCrimson else HudCyan).copy(alpha = if (state.aiSpeaking || voiceListening) 0.36f else 0.18f),
+                        Color(0x99041828),
+                        Color(0x55020A14)
+                    )
+                )
+            )
             .border(
-                width = if (state.stxOverlayOpen || voiceListening) 2.dp else 1.5.dp,
-                color = if (voiceListening || state.stxOverlayOpen) HudCrimson else HudCyan,
+                width = if (state.stxOverlayOpen || voiceListening || state.aiSpeaking) 2.dp else 1.5.dp,
+                color = when {
+                    voiceListening || state.stxOverlayOpen -> HudCrimson
+                    state.aiSpeaking -> HudIce
+                    else -> HudCyan
+                },
                 shape = CircleShape
             )
             .clickable(onClick = onToggleOverlay)
             .testTag("floating_stx_bot_orb"),
         contentAlignment = Alignment.Center
     ) {
-        Image(
-            painter = painterResource(id = R.drawable.img_stx_hologram),
-            contentDescription = "Toggle STX AI Bot Overlay",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
+        StxHologramOrbAvatar(
+            isSpeaking = state.aiSpeaking,
+            isListening = voiceListening,
+            modifier = Modifier.size(44.dp)
         )
         Box(
             modifier = Modifier
@@ -468,7 +478,13 @@ fun BoxScope.FloatingStxAiOverlay(
                 .padding(3.dp)
                 .size(9.dp)
                 .clip(CircleShape)
-                .background(if (voiceListening || state.aiThinking) HudCrimson else HudEmerald)
+                .background(
+                    when {
+                        voiceListening || state.aiThinking -> HudCrimson
+                        state.aiSpeaking -> HudCyan
+                        else -> HudEmerald
+                    }
+                )
                 .border(1.dp, Color.Black, CircleShape)
         )
     }

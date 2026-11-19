@@ -2,9 +2,11 @@ package com.example.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -12,16 +14,19 @@ import com.example.model.LauncherPreferences
 import com.example.model.VaultNote
 import com.example.security.PasscodeCrypto
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
 private val Context.stxDataStore: DataStore<Preferences> by preferencesDataStore(
-    name = "stark_os_preferences"
+    name = "stark_os_preferences",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
 )
 
 class LauncherPreferencesRepository(private val context: Context) {
@@ -52,7 +57,11 @@ class LauncherPreferencesRepository(private val context: Context) {
         val APP_USAGE_JSON = stringPreferencesKey("app_usage_json")
     }
 
-    val preferencesFlow: Flow<LauncherPreferences> = context.stxDataStore.data.map { prefs ->
+    val preferencesFlow: Flow<LauncherPreferences> = context.stxDataStore.data
+        .catch { e ->
+            if (e is IOException) emit(emptyPreferences()) else throw e
+        }
+        .map { prefs ->
         val rawNotes = prefs[Keys.VAULT_NOTES_JSON]
         val notes = if (rawNotes.isNullOrBlank()) {
             defaultVaultNotes()

@@ -45,11 +45,13 @@ import com.example.data.LocalStxCommandRouter
 import com.example.data.StxAction
 import com.example.model.DeviceTelemetry
 import com.example.model.HubModule
+import com.example.ui.components.HologramBitmapProcessor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.lang.ref.WeakReference
 import kotlin.math.abs
 
@@ -145,7 +147,7 @@ class StxFloatingAiService : Service() {
         )
 
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stx_notif)
             .setContentTitle("STX AI · System Overlay Active")
             .setContentText("Floating assistant ready across all apps")
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -195,21 +197,37 @@ class StxFloatingAiService : Service() {
         val root = FrameLayout(this)
         rootContainer = root
 
-        // 1. Collapsed Draggable STX Orb
+        // 1. Collapsed Draggable STX Hologram Orb (transparent cutout over glowing cyan halo)
         val orb = FrameLayout(this).apply {
             val sizePx = dp(52)
             layoutParams = FrameLayout.LayoutParams(sizePx, sizePx)
-            background = GradientDrawable().apply {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(
+                    Color.parseColor("#6600EAFF"),
+                    Color.parseColor("#AA04192C"),
+                    Color.parseColor("#88020C18")
+                )
+            ).apply {
                 shape = GradientDrawable.OVAL
-                setColor(COLOR_BG_DARK)
-                setStroke(dp(2), COLOR_CYAN)
+                gradientType = GradientDrawable.RADIAL_GRADIENT
+                gradientRadius = dp(26).toFloat()
+                setStroke(dp(1) + 1, COLOR_CYAN)
             }
             val img = ImageView(this@StxFloatingAiService).apply {
                 setImageResource(R.drawable.img_stx_hologram)
                 scaleType = ImageView.ScaleType.CENTER_CROP
-                val pad = dp(6)
+                val pad = dp(4)
                 setPadding(pad, pad, pad, pad)
                 clipToOutline = true
+            }
+            serviceScope.launch {
+                val cutout = withContext(Dispatchers.Default) {
+                    HologramBitmapProcessor.getOrCreateCutoutBitmap(this@StxFloatingAiService, 144)
+                }
+                if (cutout != null && !cutout.isRecycled) {
+                    img.setImageBitmap(cutout)
+                }
             }
             addView(
                 img,
@@ -489,7 +507,8 @@ class StxFloatingAiService : Service() {
         val root = rootContainer
         if (lp != null && root != null) {
             lp.flags = if (expanded) {
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
             } else {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
@@ -511,17 +530,20 @@ class StxFloatingAiService : Service() {
         appendLog("YOU: $prompt")
 
         serviceScope.launch {
-            val snapshot = readSnapshotTelemetry()
-            val apps = runCatching {
-                appsRepo.loadInstalledApps(emptySet(), emptySet(), emptySet())
-            }.getOrDefault(emptyList())
+            runCatching {
+                val snapshot = readSnapshotTelemetry()
+                val apps = runCatching {
+                    appsRepo.loadInstalledApps(emptySet(), emptySet(), emptySet())
+                }.getOrDefault(emptyList())
 
-            val reply = LocalStxCommandRouter.tryMatchLocalCommand(prompt, snapshot, apps)
-                ?: aiRepo.query(prompt, snapshot, apps)
+                val reply = LocalStxCommandRouter.tryMatchLocalCommand(prompt, snapshot, apps)
+                    ?: aiRepo.query(prompt, snapshot, apps)
 
-            executeGlobalAction(reply.action)
-
-            appendLog("STX: ${reply.text}")
+                executeGlobalAction(reply.action)
+                appendLog("STX: ${reply.text}")
+            }.onFailure {
+                appendLog("STX: Command interrupted safely.")
+            }
             statusSubView?.text = "FLOATING OVER ALL APPS"
             statusSubView?.setTextColor(COLOR_CYAN)
         }

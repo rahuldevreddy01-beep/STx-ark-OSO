@@ -36,83 +36,97 @@ class LauncherAppsRepository(private val context: Context) {
         val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
             addCategory(Intent.CATEGORY_LAUNCHER)
         }
-        val resolveInfos = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            pm.queryIntentActivities(
-                mainIntent,
-                PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_ALL.toLong())
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            pm.queryIntentActivities(mainIntent, 0)
-        }
+        val resolveInfos = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.queryIntentActivities(
+                    mainIntent,
+                    PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_ALL.toLong())
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                pm.queryIntentActivities(mainIntent, 0)
+            }
+        }.getOrDefault(emptyList())
 
         resolveInfos
-            .filter { it.activityInfo.packageName != context.packageName }
-            .distinctBy { "${it.activityInfo.packageName}/${it.activityInfo.name}" }
-            .map { info ->
-                val pkg = info.activityInfo.packageName
-                val appInfo = info.activityInfo.applicationInfo
-                val label = info.loadLabel(pm).toString().ifBlank { pkg }
-                val pkgInfo = runCatching {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        pm.getPackageInfo(
-                            pkg,
-                            PackageManager.PackageInfoFlags.of(PackageManager.GET_PERMISSIONS.toLong())
-                        )
-                    } else {
-                        @Suppress("DEPRECATION")
-                        pm.getPackageInfo(pkg, PackageManager.GET_PERMISSIONS)
-                    }
+            .asSequence()
+            .filter { info ->
+                val act = info.activityInfo ?: return@filter false
+                !act.packageName.isNullOrBlank() && act.packageName != context.packageName
+            }
+            .distinctBy { "${it.activityInfo.packageName}/${it.activityInfo.name.orEmpty()}" }
+            .mapNotNull { info ->
+                runCatching {
+                    val actInfo = info.activityInfo ?: return@runCatching null
+                    val pkg = actInfo.packageName ?: return@runCatching null
+                    val appInfo = actInfo.applicationInfo ?: return@runCatching null
+                    val label = runCatching { info.loadLabel(pm)?.toString() }.getOrNull()
+                        ?.ifBlank { pkg } ?: pkg
+                    val pkgInfo = runCatching {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            pm.getPackageInfo(
+                                pkg,
+                                PackageManager.PackageInfoFlags.of(PackageManager.GET_PERMISSIONS.toLong())
+                            )
+                        } else {
+                            @Suppress("DEPRECATION")
+                            pm.getPackageInfo(pkg, PackageManager.GET_PERMISSIONS)
+                        }
+                    }.getOrNull()
+
+                    val activityName = actInfo.name.orEmpty()
+                    val iconKey = "$pkg/$activityName"
+                    val iconBitmap = iconCache[iconKey] ?: runCatching {
+                        drawableToImageBitmap(info.loadIcon(pm))
+                    }.getOrNull()?.also { iconCache[iconKey] = it }
+
+                    val categoryTag = resolveCategoryTag(appInfo)
+                    val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+
+                    InstalledApp(
+                        label = label,
+                        packageName = pkg,
+                        activityName = activityName,
+                        versionName = pkgInfo?.versionName ?: "1.0",
+                        targetSdk = appInfo.targetSdkVersion,
+                        isSystemApp = isSystem,
+                        permissionsCount = pkgInfo?.requestedPermissions?.size ?: 0,
+                        icon = iconBitmap,
+                        categoryTag = categoryTag,
+                        isPinnedToDock = pkg in pinnedPackages,
+                        alertsEnabled = pkg !in mutedAlertPackages,
+                        bgSyncEnabled = pkg !in disabledSyncPackages
+                    )
                 }.getOrNull()
-
-                val activityName = info.activityInfo.name.orEmpty()
-                val iconKey = "$pkg/$activityName"
-                val iconBitmap = iconCache[iconKey] ?: runCatching {
-                    drawableToImageBitmap(info.loadIcon(pm))
-                }.getOrNull()?.also { iconCache[iconKey] = it }
-
-                val categoryTag = resolveCategoryTag(appInfo)
-                val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-
-                InstalledApp(
-                    label = label,
-                    packageName = pkg,
-                    activityName = info.activityInfo.name,
-                    versionName = pkgInfo?.versionName ?: "1.0",
-                    targetSdk = appInfo.targetSdkVersion,
-                    isSystemApp = isSystem,
-                    permissionsCount = pkgInfo?.requestedPermissions?.size ?: 0,
-                    icon = iconBitmap,
-                    categoryTag = categoryTag,
-                    isPinnedToDock = pkg in pinnedPackages,
-                    alertsEnabled = pkg !in mutedAlertPackages,
-                    bgSyncEnabled = pkg !in disabledSyncPackages
-                )
             }
             .sortedBy { it.label.lowercase() }
+            .toList()
     }
 
     fun launchFullscreen(app: InstalledApp): Boolean {
-        return runCatching {
-            val intent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_LAUNCHER)
-                component = ComponentName(app.packageName, app.activityName)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
-            }
-            context.startActivity(intent)
-            true
-        }.getOrElse {
-            runCatching {
-                val fallback = context.packageManager.getLaunchIntentForPackage(app.packageName)
-                if (fallback != null) {
-                    fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(fallback)
-                    true
-                } else {
-                    false
+        if (app.packageName.isBlank()) return false
+        if (app.activityName.isNotBlank()) {
+            val launchedDirect = runCatching {
+                val intent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_LAUNCHER)
+                    component = ComponentName(app.packageName, app.activityName)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
                 }
+                context.startActivity(intent)
+                true
             }.getOrDefault(false)
+            if (launchedDirect) return true
         }
+        return runCatching {
+            val fallback = context.packageManager.getLaunchIntentForPackage(app.packageName)
+            if (fallback != null) {
+                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(fallback)
+                true
+            } else {
+                false
+            }
+        }.getOrDefault(false)
     }
 
     /**
@@ -120,11 +134,19 @@ class LauncherAppsRepository(private val context: Context) {
      * Uses WINDOWING_MODE_FREEFORM (5) + centered Rect launch bounds + MIUI freeform flags.
      */
     fun launchWindowed(app: InstalledApp): Boolean {
+        if (app.packageName.isBlank()) return false
         return runCatching {
-            val intent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_LAUNCHER)
-                component = ComponentName(app.packageName, app.activityName)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK
+            val intent = if (app.activityName.isNotBlank()) {
+                Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_LAUNCHER)
+                    component = ComponentName(app.packageName, app.activityName)
+                }
+            } else {
+                context.packageManager.getLaunchIntentForPackage(app.packageName)
+                    ?: return false
+            }
+            intent.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
                 // MIUI / HyperOS floating window hints (safe extras)
                 putExtra("miui.intent.extra.OPEN_IN_FREEFORM", true)
             }
@@ -141,8 +163,8 @@ class LauncherAppsRepository(private val context: Context) {
             val dm = context.resources.displayMetrics
             val w = (minOf(dm.widthPixels, dm.heightPixels) * 0.78f).toInt().coerceAtLeast(360)
             val h = (dm.heightPixels * 0.72f).toInt().coerceAtLeast(420)
-            val left = (dm.widthPixels - w) / 2
-            val top = (dm.heightPixels - h) / 2
+            val left = ((dm.widthPixels - w) / 2).coerceAtLeast(0)
+            val top = ((dm.heightPixels - h) / 2).coerceAtLeast(0)
             val bounds = Rect(left, top, left + w, top + h)
 
             val options = ActivityOptions.makeBasic().apply {
@@ -233,22 +255,27 @@ class LauncherAppsRepository(private val context: Context) {
         return if ((info.flags and ApplicationInfo.FLAG_SYSTEM) != 0) "SYSTEM" else "APP"
     }
 
-    private fun drawableToImageBitmap(drawable: Drawable): ImageBitmap {
-        if (drawable is BitmapDrawable) {
-            val bmp = drawable.bitmap
-            val isHardware = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                bmp?.config == Bitmap.Config.HARDWARE
-            if (bmp != null && !bmp.isRecycled && bmp.width > 0 && bmp.height > 0 && !isHardware) {
-                val scaled = Bitmap.createScaledBitmap(bmp, 96, 96, true)
-                return scaled.asImageBitmap()
+    private fun drawableToImageBitmap(drawable: Drawable?): ImageBitmap? {
+        if (drawable == null) return null
+        return try {
+            val size = 64
+            if (drawable is BitmapDrawable) {
+                val bmp = drawable.bitmap
+                val isHardware = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                    bmp?.config == Bitmap.Config.HARDWARE
+                if (bmp != null && !bmp.isRecycled && bmp.width > 0 && bmp.height > 0 && !isHardware) {
+                    val scaled = Bitmap.createScaledBitmap(bmp, size, size, true)
+                    return scaled.asImageBitmap()
+                }
             }
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, canvas.width, canvas.height)
+            drawable.draw(canvas)
+            bitmap.asImageBitmap()
+        } catch (_: Throwable) {
+            null
         }
-        val size = 96
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        drawable.setBounds(0, 0, canvas.width, canvas.height)
-        drawable.draw(canvas)
-        return bitmap.asImageBitmap()
     }
 
     companion object {

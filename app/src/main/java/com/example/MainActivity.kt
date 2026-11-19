@@ -72,7 +72,6 @@ import com.example.service.StxFloatingAiService
 import com.example.ui.StarkUiState
 import com.example.ui.StarkViewModel
 import com.example.ui.components.ArcReactorBootPulse
-import com.example.ui.components.BottomHudBar
 import com.example.ui.components.EdgeFlashOverlay
 import com.example.ui.components.FloatingStxAiOverlay
 import com.example.ui.components.LockscreenCoverOverlay
@@ -208,9 +207,11 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun setLockDimmed(dimmed: Boolean) {
-        val attrs = window.attributes
-        attrs.screenBrightness = if (dimmed) 0.015f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-        window.attributes = attrs
+        runCatching {
+            val attrs = window.attributes
+            attrs.screenBrightness = if (dimmed) 0.015f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            window.attributes = attrs
+        }
     }
 
     private fun applyImmersiveFullscreen(fullscreen: Boolean) {
@@ -501,7 +502,13 @@ fun StarkOsRoot(
                             onToggleFlash = viewModel::toggleFlashlight,
                             onToggleLock = viewModel::toggleTouchLock,
                             onSync = viewModel::syncHardwareAndApps,
-                            onToggleMute = viewModel::toggleMute
+                            onToggleMute = viewModel::toggleMute,
+                            onFoldRotate = viewModel::cycleFoldMode,
+                            onSelectMode = viewModel::setMode,
+                            onLockDeck = { viewModel.engageLockCover() },
+                            onToggleFullscreen = {
+                                viewModel.setFullscreenImmersive(!state.preferences.fullscreenImmersive)
+                            }
                         )
 
                         StarkMode.HUB -> LandscapeHubView(
@@ -517,7 +524,13 @@ fun StarkOsRoot(
                             onToggleLock = viewModel::toggleTouchLock,
                             onSync = viewModel::syncHardwareAndApps,
                             onToggleMute = viewModel::toggleMute,
-                            onVoiceCommand = ::launchVoiceCommand
+                            onVoiceCommand = ::launchVoiceCommand,
+                            onFoldRotate = viewModel::cycleFoldMode,
+                            onSelectMode = viewModel::setMode,
+                            onLockDeck = { viewModel.engageLockCover() },
+                            onToggleFullscreen = {
+                                viewModel.setFullscreenImmersive(!state.preferences.fullscreenImmersive)
+                            }
                         )
 
                         StarkMode.HALF_DIAL -> HalfDialWorkspaceView(
@@ -573,26 +586,17 @@ fun StarkOsRoot(
                             state = state,
                             voiceListening = voiceState.isListening,
                             voicePartial = voiceState.partialTranscript,
+                            voiceRms = voiceState.rmsNormalized,
                             onVoiceCommand = ::launchVoiceCommand,
                             onSendPrompt = { q -> viewModel.sendAiPrompt(q, switchToAiView = false) },
+                            onWarmUpSpeech = viewModel::warmUpSpeech,
+                            onToggleTts = viewModel::toggleTtsEnabled,
+                            onAvatarTap = viewModel::onHologramAvatarTap,
                             onBack = { viewModel.stepBackFromHalfDialCenter() }
                         )
                     }
                 }
             }
-
-            BottomHudBar(
-                currentMode = state.mode,
-                isFullscreen = state.preferences.fullscreenImmersive,
-                isSettingsActive = state.mode == StarkMode.HALF_DIAL && state.activeModule == HubModule.SETTINGS,
-                onFoldRotate = viewModel::cycleFoldMode,
-                onSelectMode = viewModel::setMode,
-                onOpenSettings = { viewModel.openModule(HubModule.SETTINGS) },
-                onLockDeck = { viewModel.engageLockCover() },
-                onToggleFullscreen = {
-                    viewModel.setFullscreenImmersive(!state.preferences.fullscreenImmersive)
-                }
-            )
         }
 
         // 3. Floating STX AI Corner Bot + Translucent Command Overlay (when unlocked)

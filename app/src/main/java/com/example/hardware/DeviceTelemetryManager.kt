@@ -299,7 +299,9 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
                     val gx = values[0]
                     val gy = values[1]
                     val gz = values[2]
+                    if (!gx.isFinite() || !gy.isFinite() || !gz.isFinite()) return
                     val mag = sqrt(gx * gx + gy * gy + gz * gz)
+                    if (!mag.isFinite()) return
                     synchronized(gyroHistoryBuffer) {
                         if (gyroHistoryBuffer.size >= 36) gyroHistoryBuffer.removeFirst()
                         gyroHistoryBuffer.addLast(mag)
@@ -309,11 +311,11 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
 
                 Sensor.TYPE_ACCELEROMETER -> {
                     if (values.size < 3) return
-                    pushThrottledSensorUpdate(
-                        ax = values[0],
-                        ay = values[1],
-                        az = values[2]
-                    )
+                    val ax = values[0]
+                    val ay = values[1]
+                    val az = values[2]
+                    if (!ax.isFinite() || !ay.isFinite() || !az.isFinite()) return
+                    pushThrottledSensorUpdate(ax = ax, ay = ay, az = az)
                 }
 
                 Sensor.TYPE_ROTATION_VECTOR -> {
@@ -324,7 +326,8 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
                     val azimuthRad = orientation[0]
                     val pitchRad = orientation[1]
                     val rollRad = orientation[2]
-                    val deg = ((Math.toDegrees(azimuthRad.toDouble()) + 360.0) % 360.0).roundToInt()
+                    if (!azimuthRad.isFinite() || !pitchRad.isFinite() || !rollRad.isFinite()) return
+                    val deg = (((Math.toDegrees(azimuthRad.toDouble()) + 360.0) % 360.0).roundToInt() % 360 + 360) % 360
                     val cardinal = azimuthToCardinal(deg)
                     val pitch = Math.toDegrees(pitchRad.toDouble()).roundToInt()
                     val roll = Math.toDegrees(rollRad.toDouble()).roundToInt()
@@ -338,7 +341,9 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
 
                 Sensor.TYPE_LIGHT -> {
                     if (values.isEmpty()) return
-                    pushThrottledSensorUpdate(lux = values[0])
+                    val lux = values[0]
+                    if (!lux.isFinite()) return
+                    pushThrottledSensorUpdate(lux = lux.coerceAtLeast(0f))
                 }
             }
         }

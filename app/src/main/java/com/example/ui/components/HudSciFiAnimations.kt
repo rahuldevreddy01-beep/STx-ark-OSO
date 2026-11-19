@@ -122,10 +122,11 @@ fun ArcReactorBootPulse(
                 .fillMaxSize()
                 .background(ObsidianVoid.copy(alpha = 0.35f))
         ) {
+            if (size.width <= 0f || size.height <= 0f || size.minDimension <= 0f) return@Canvas
             val p = sweepProgress.value
             val cx = size.width / 2f
             val cy = size.height / 2f
-            val baseR = size.minDimension * (0.12f + p * 0.38f)
+            val baseR = (size.minDimension * (0.12f + p * 0.38f)).coerceAtLeast(2f)
 
             drawCircle(
                 brush = Brush.radialGradient(
@@ -138,7 +139,7 @@ fun ArcReactorBootPulse(
                     radius = (baseR * 1.4f).coerceAtLeast(10f)
                 ),
                 center = Offset(cx, cy),
-                radius = baseR * 1.4f
+                radius = (baseR * 1.4f).coerceAtLeast(10f)
             )
 
             val outerRectSize = Size(baseR * 2f, baseR * 2f)
@@ -194,13 +195,14 @@ fun SciFiDualPulseBeam(
     Canvas(modifier = modifier) {
         val h = size.height
         val w = size.width
+        if (w <= 0f || h <= 0f) return@Canvas
         drawLine(
             color = HudElectricBlue.copy(alpha = 0.28f),
             start = Offset(0f, h / 2f),
             end = Offset(w, h / 2f),
             strokeWidth = 1.dp.toPx()
         )
-        val segW = w * 0.24f
+        val segW = (w * 0.24f).coerceAtLeast(2f)
         val x1 = (phase * (w + segW)) - segW
         drawRect(
             brush = Brush.horizontalGradient(

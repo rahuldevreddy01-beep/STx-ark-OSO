@@ -67,6 +67,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -224,10 +225,15 @@ fun LockscreenCoverOverlay(
             .fillMaxSize()
             .background(ObsidianVoid.copy(alpha = 0.98f))
             .pointerInput(Unit) {
+                var lastWakeMs = 0L
                 awaitPointerEventScope {
                     while (true) {
-                        awaitPointerEvent(PointerEventPass.Initial)
-                        interactionNonce++
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val now = android.os.SystemClock.uptimeMillis()
+                        if (event.type == PointerEventType.Press || now - lastWakeMs >= 400L) {
+                            lastWakeMs = now
+                            interactionNonce++
+                        }
                     }
                 }
             }

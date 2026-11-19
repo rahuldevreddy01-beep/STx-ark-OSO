@@ -11,6 +11,7 @@ import com.example.data.LauncherPreferencesRepository
 import com.example.data.StxAction
 import com.example.hardware.DeviceTelemetryManager
 import com.example.hardware.HudSoundEngine
+import com.example.hardware.StxSpeechEngine
 import com.example.model.AiMessage
 import com.example.model.AppLaunchMode
 import com.example.model.DeviceTelemetry
@@ -75,6 +76,9 @@ data class StarkUiState(
         )
     ),
     val aiThinking: Boolean = false,
+    val ttsEnabled: Boolean = true,
+    val aiSpeaking: Boolean = false,
+    val aiSpeechPulseTick: Int = 0,
     val statusBanner: String? = null,
     val lockScreenError: String? = null,
     val lockAiReply: String? = null
@@ -87,6 +91,7 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
     private val telemetryManager = DeviceTelemetryManager(application)
     private val aiRepo: AiRepository by lazy { FirebaseAiStxRepository() }
     private val soundEngine = HudSoundEngine()
+    private val speechEngine = StxSpeechEngine(application)
 
     private val _rawApps = MutableStateFlow<List<InstalledApp>>(emptyList())
     private val _uiState = MutableStateFlow(StarkUiState())
@@ -161,6 +166,24 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // Collect real-time TTS speaking & word-boundary pulse for hologram lip-sync
+        viewModelScope.launch {
+            speechEngine.speechState.collect { speech ->
+                _uiState.update { state ->
+                    if (state.aiSpeaking == speech.isSpeaking &&
+                        state.aiSpeechPulseTick == speech.pulseTick
+                    ) {
+                        state
+                    } else {
+                        state.copy(
+                            aiSpeaking = speech.isSpeaking,
+                            aiSpeechPulseTick = speech.pulseTick
+                        )
+                    }
+                }
+            }
+        }
+
         // Only enrich/re-sort installedApps & topRecentApps when preferences or package list change
         viewModelScope.launch {
             combine(preferencesFlow, _rawApps) { prefs, rawApps ->
@@ -188,9 +211,11 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
 
         // Engage STX Lock Cover on launch if enabled
         viewModelScope.launch {
-            val initialPrefs = prefsRepo.preferencesFlow.first()
-            if (initialPrefs.lockCoverEnabled) {
-                telemetryManager.setTouchLocked(true)
+            runCatching {
+                val initialPrefs = prefsRepo.preferencesFlow.first()
+                if (initialPrefs.lockCoverEnabled) {
+                    telemetryManager.setTouchLocked(true)
+                }
             }
         }
 
@@ -201,11 +226,13 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.update { it.copy(appsLoading = true) }
             val prefs = preferencesFlow.value
-            val loaded = appsRepo.loadInstalledApps(
-                pinnedPackages = prefs.pinnedPackages,
-                mutedAlertPackages = prefs.mutedAlertPackages,
-                disabledSyncPackages = prefs.disabledSyncPackages
-            )
+            val loaded = runCatching {
+                appsRepo.loadInstalledApps(
+                    pinnedPackages = prefs.pinnedPackages,
+                    mutedAlertPackages = prefs.mutedAlertPackages,
+                    disabledSyncPackages = prefs.disabledSyncPackages
+                )
+            }.getOrDefault(emptyList())
             _rawApps.value = loaded
             _uiState.update { it.copy(appsLoading = false) }
         }
@@ -240,6 +267,11 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update {
             it.copy(
                 mode = mode,
+                activeModule = if (mode == StarkMode.HALF_DIAL && it.activeModule == HubModule.STX_AI) {
+                    HubModule.APPS
+                } else {
+                    it.activeModule
+                },
                 stxOverlayOpen = false
             )
         }
@@ -427,8 +459,47 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleMute() {
         val muted = telemetryManager.toggleMute()
+        if (muted) {
+            speechEngine.stop()
+        }
         _uiState.update {
             it.copy(statusBanner = if (muted) "AUDIO MUTED" else "AUDIO ONLINE")
+        }
+    }
+
+    fun warmUpSpeech() {
+        if (_uiState.value.ttsEnabled) {
+            speechEngine.warmUp()
+        }
+    }
+
+    fun toggleTtsEnabled() {
+        val next = !_uiState.value.ttsEnabled
+        playSelectCue()
+        if (!next) {
+            speechEngine.stop()
+        } else {
+            speechEngine.warmUp()
+        }
+        _uiState.update {
+            it.copy(
+                ttsEnabled = next,
+                statusBanner = if (next) "STX VOICE OUTPUT ONLINE" else "STX VOICE OUTPUT MUTED"
+            )
+        }
+    }
+
+    fun onHologramAvatarTap() {
+        val snap = _uiState.value
+        playSelectCue()
+        if (snap.aiSpeaking) {
+            speechEngine.stop()
+            return
+        }
+        if (snap.ttsEnabled && !snap.telemetry.audioMuted) {
+            val greet = "STX Core online, ${snap.preferences.operatorCallsign}. " +
+                "Power at ${snap.telemetry.batteryPercent} percent. How can I assist?"
+            speechEngine.speak(greet)
         }
     }
 
@@ -533,8 +604,12 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
         playSelectCue()
         viewModelScope.launch {
             val snapshot = _uiState.value
-            val reply = aiRepo.query(clean, snapshot.telemetry, snapshot.installedApps)
-            _uiState.update { it.copy(lockAiReply = reply.text) }
+            val replyText = runCatching {
+                aiRepo.query(clean, snapshot.telemetry, snapshot.installedApps).text
+            }.getOrElse {
+                "STX AI temporarily offline. Try again when network is active."
+            }
+            _uiState.update { it.copy(lockAiReply = replyText) }
         }
     }
 
@@ -705,71 +780,91 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch {
-            val snapshot = _uiState.value
-            val reply = aiRepo.query(clean, snapshot.telemetry, snapshot.installedApps)
-            val replyStamp = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-            val actionTag = when (val act = reply.action) {
-                StxAction.ToggleFlashlight -> {
-                    toggleFlashlight()
-                    "TORCH TOGGLED"
+            try {
+                val snapshot = _uiState.value
+                val reply = aiRepo.query(clean, snapshot.telemetry, snapshot.installedApps)
+                val replyStamp = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+                val actionTag = when (val act = reply.action) {
+                    StxAction.ToggleFlashlight -> {
+                        toggleFlashlight()
+                        "TORCH TOGGLED"
+                    }
+                    StxAction.OpenWifi -> {
+                        openWifiPanel()
+                        "WIFI PANEL"
+                    }
+                    StxAction.OpenBluetooth -> {
+                        openBluetoothPanel()
+                        "BLUETOOTH"
+                    }
+                    StxAction.ToggleMute -> {
+                        toggleMute()
+                        "AUDIO MUTE"
+                    }
+                    StxAction.ToggleFullscreen -> {
+                        setFullscreenImmersive(!snapshot.preferences.fullscreenImmersive)
+                        "FULLSCREEN"
+                    }
+                    StxAction.LockDeck -> {
+                        engageLockCover()
+                        "LOCK ARMED"
+                    }
+                    StxAction.SyncHardware -> {
+                        syncHardwareAndApps()
+                        "SYNCED"
+                    }
+                    is StxAction.SwitchMode -> {
+                        setMode(act.mode)
+                        "MODE · ${act.mode.name}"
+                    }
+                    is StxAction.OpenModule -> {
+                        openModule(act.module)
+                        "MODULE · ${act.module.title}"
+                    }
+                    is StxAction.StartTimer -> {
+                        startVaultTimer(act.seconds)
+                        openModule(HubModule.VAULT)
+                        "TIMER · ${act.seconds}S"
+                    }
+                    is StxAction.LaunchApp -> {
+                        if (act.windowed) launchAppWindowed(act.app) else launchAppFullscreen(act.app)
+                        "${if (act.windowed) "WINDOW" else "LAUNCH"} · ${act.app.label.uppercase()}"
+                    }
+                    null -> null
                 }
-                StxAction.OpenWifi -> {
-                    openWifiPanel()
-                    "WIFI PANEL"
-                }
-                StxAction.OpenBluetooth -> {
-                    openBluetoothPanel()
-                    "BLUETOOTH"
-                }
-                StxAction.ToggleMute -> {
-                    toggleMute()
-                    "AUDIO MUTE"
-                }
-                StxAction.ToggleFullscreen -> {
-                    setFullscreenImmersive(!snapshot.preferences.fullscreenImmersive)
-                    "FULLSCREEN"
-                }
-                StxAction.LockDeck -> {
-                    engageLockCover()
-                    "LOCK ARMED"
-                }
-                StxAction.SyncHardware -> {
-                    syncHardwareAndApps()
-                    "SYNCED"
-                }
-                is StxAction.SwitchMode -> {
-                    setMode(act.mode)
-                    "MODE · ${act.mode.name}"
-                }
-                is StxAction.OpenModule -> {
-                    openModule(act.module)
-                    "MODULE · ${act.module.title}"
-                }
-                is StxAction.StartTimer -> {
-                    startVaultTimer(act.seconds)
-                    openModule(HubModule.VAULT)
-                    "TIMER · ${act.seconds}S"
-                }
-                is StxAction.LaunchApp -> {
-                    if (act.windowed) launchAppWindowed(act.app) else launchAppFullscreen(act.app)
-                    "${if (act.windowed) "WINDOW" else "LAUNCH"} · ${act.app.label.uppercase()}"
-                }
-                null -> null
-            }
 
-            val aiMsg = AiMessage(
-                id = UUID.randomUUID().toString(),
-                isUser = false,
-                text = reply.text,
-                timestamp = replyStamp,
-                isError = reply.isError,
-                executedAction = actionTag
-            )
-            _uiState.update {
-                it.copy(
-                    aiMessages = it.aiMessages + aiMsg,
-                    aiThinking = false
+                val aiMsg = AiMessage(
+                    id = UUID.randomUUID().toString(),
+                    isUser = false,
+                    text = reply.text,
+                    timestamp = replyStamp,
+                    isError = reply.isError,
+                    executedAction = actionTag
                 )
+                _uiState.update {
+                    it.copy(
+                        aiMessages = it.aiMessages + aiMsg,
+                        aiThinking = false
+                    )
+                }
+                val after = _uiState.value
+                if (after.ttsEnabled && !after.telemetry.audioMuted) {
+                    speechEngine.speak(reply.text)
+                }
+            } catch (_: Throwable) {
+                val errStamp = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+                _uiState.update {
+                    it.copy(
+                        aiMessages = it.aiMessages + AiMessage(
+                            id = UUID.randomUUID().toString(),
+                            isUser = false,
+                            text = "STX AI link encountered a transient error. Ready for next command.",
+                            timestamp = errStamp,
+                            isError = true
+                        ),
+                        aiThinking = false
+                    )
+                }
             }
         }
     }
@@ -900,6 +995,7 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        speechEngine.destroy()
         telemetryManager.stopMonitoring()
     }
 }
