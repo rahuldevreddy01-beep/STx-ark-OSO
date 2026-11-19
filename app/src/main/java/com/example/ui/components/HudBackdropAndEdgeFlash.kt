@@ -165,6 +165,7 @@ fun HudBracketCard(
     borderColor: Color = HudCyanBorder,
     accentCornerColor: Color = HudCyan,
     bottomLeftAccent: Color = HudCrimson,
+    containerColor: Color = ObsidianGlass,
     contentPadding: Dp = 14.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -172,7 +173,7 @@ fun HudBracketCard(
     Box(
         modifier = modifier
             .clip(shape)
-            .background(ObsidianGlass)
+            .background(containerColor)
             .border(1.dp, borderColor, shape)
     ) {
         // Signature dual Red + Electric Blue sci-fi HUD corner brackets

@@ -483,8 +483,8 @@ fun HalfDialWorkspaceView(
 
             if (isWideLandscape) {
                 // Symmetrical Dual-Dial Apps Cockpit:
-                // [Left Launch/Action Dial] — [CENTER Carousel / All Apps] — [Right Top Used Dial]
-                val dialWidth = (maxWidth * 0.25f).coerceIn(154.dp, 206.dp)
+                // [Left Launch/Action Dial] — [CENTER 3D Carousel / All Apps] — [Right Top Used Dial]
+                val dialWidth = (maxWidth * 0.225f).coerceIn(146.dp, 194.dp)
                 Row(
                     modifier = Modifier.fillMaxSize(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -572,7 +572,7 @@ fun HalfDialWorkspaceView(
                 // Top Row: [Left Launch/Action Dial] — [Center App Carousel Card] — [Right Top Used Dial]
                 // Bottom Row: Lightweight 5-col All Apps Grid
                 val topRowHeight = (maxHeight * 0.44f).coerceIn(212.dp, 266.dp)
-                val dialWidth = (maxWidth * 0.275f).coerceIn(96.dp, 128.dp)
+                val dialWidth = (maxWidth * 0.245f).coerceIn(88.dp, 114.dp)
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
