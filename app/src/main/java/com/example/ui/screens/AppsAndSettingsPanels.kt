@@ -9,6 +9,11 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -83,6 +88,7 @@ import com.example.security.StarkDeviceAdminReceiver
 import com.example.ui.StarkUiState
 import com.example.ui.components.ArcReactorLeftRimAccent
 import com.example.ui.components.HudBracketCard
+import com.example.ui.components.SciFiDualPulseBeam
 import com.example.ui.theme.HudCrimson
 import com.example.ui.theme.HudCrimsonBorder
 import com.example.ui.theme.HudCrimsonSubtle
@@ -154,9 +160,15 @@ fun AllAppsFiveColGrid(
                             text = "TAP TO LAUNCH",
                             fontFamily = JetBrainsMonoFontFamily,
                             fontSize = 8.5.sp,
-                            color = HudSlate
+                            color = HudCrimson
                         )
                     }
+
+                    SciFiDualPulseBeam(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.dp)
+                    )
 
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(5),
@@ -176,10 +188,10 @@ fun AllAppsFiveColGrid(
                             Column(
                                 modifier = Modifier
                                     .clip(GridCardShape)
-                                    .background(if (isFocused) HudCyanSubtle else Color(0x5506101B))
+                                    .background(if (isFocused) HudCrimsonSubtle else Color(0x5506101B))
                                     .border(
-                                        width = if (isFocused) 1.2.dp else 0.7.dp,
-                                        color = if (isFocused) HudCyan else HudDivider,
+                                        width = if (isFocused) 1.3.dp else 0.7.dp,
+                                        color = if (isFocused) HudCrimson else HudDivider,
                                         shape = GridCardShape
                                     )
                                     .clickable { onLaunchApp(app) }
@@ -315,10 +327,10 @@ fun AppFocusCarouselCard(
                         modifier = Modifier
                             .size(32.dp)
                             .clip(CircleShape)
-                            .background(if (activeApp.isPinnedToDock) HudCyanSubtle else Color(0x44081018))
+                            .background(if (activeApp.isPinnedToDock) HudCrimsonSubtle else Color(0x44081018))
                             .border(
                                 1.dp,
-                                if (activeApp.isPinnedToDock) HudCyan else HudDivider,
+                                if (activeApp.isPinnedToDock) HudCrimson else HudDivider,
                                 CircleShape
                             )
                             .clickable { onTogglePin(activeApp.packageName) }
@@ -328,11 +340,18 @@ fun AppFocusCarouselCard(
                         Icon(
                             imageVector = if (activeApp.isPinnedToDock) Icons.Default.Star else Icons.Default.StarOutline,
                             contentDescription = "Pin app to dock",
-                            tint = if (activeApp.isPinnedToDock) HudCyan else HudSlate,
+                            tint = if (activeApp.isPinnedToDock) HudCrimson else HudSlate,
                             modifier = Modifier.size(15.dp)
                         )
                     }
                 }
+
+                SciFiDualPulseBeam(
+                    isAlertCrimson = activeApp.isPinnedToDock,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.5.dp)
+                )
 
                 // Center Hero Icon & Info (tap anywhere opens app directly)
                 Column(
@@ -603,7 +622,17 @@ fun SettingsModulePanel(
 
             HorizontalDivider(color = HudDivider)
 
-            when (activeSection) {
+            val canDrawOverlaysCached = remember(state.preferences.systemFloatingAiEnabled, state.mode) {
+                Settings.canDrawOverlays(context)
+            }
+
+            AnimatedContent(
+                targetState = activeSection,
+                transitionSpec = { fadeIn(tween(160)).togetherWith(fadeOut(tween(110))) },
+                label = "settings_section_transition"
+            ) { section ->
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    when (section) {
                 SettingsSection.LAUNCHER -> {
                     Text(
                         text = "Set STX OS as your Android Home Launcher so pressing Home returns directly to this holographic deck.",
@@ -747,12 +776,12 @@ fun SettingsModulePanel(
                     )
                     SettingsSwitchRow(
                         title = "SYSTEM-WIDE FLOATING STX AI",
-                        subtitle = if (Settings.canDrawOverlays(context)) {
+                        subtitle = if (canDrawOverlaysCached) {
                             "Keep STX AI floating over all apps across the system"
                         } else {
                             "Tap to grant Display Over Other Apps permission"
                         },
-                        checked = state.preferences.systemFloatingAiEnabled && Settings.canDrawOverlays(context),
+                        checked = state.preferences.systemFloatingAiEnabled && canDrawOverlaysCached,
                         onCheckedChange = onToggleSystemFloatingAi
                     )
                 }
@@ -1098,6 +1127,8 @@ fun SettingsModulePanel(
                             modifier = Modifier.fillMaxWidth(),
                             onClick = onEngageLockNow
                         )
+                    }
+                }
                     }
                 }
             }

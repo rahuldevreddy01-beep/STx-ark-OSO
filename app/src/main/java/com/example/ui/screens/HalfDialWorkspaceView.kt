@@ -1,5 +1,12 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -50,6 +57,8 @@ import com.example.ui.StarkUiState
 import com.example.ui.components.ArcReactorRightHalfDial
 import com.example.ui.components.ArcReactorSideHalfDial
 import com.example.ui.components.DialSide
+import com.example.ui.components.SciFiDualPulseBeam
+import com.example.ui.components.StxEntrancePanel
 import com.example.ui.theme.HudCrimson
 import com.example.ui.theme.HudCrimsonBorder
 import com.example.ui.theme.HudCrimsonSubtle
@@ -75,6 +84,7 @@ fun HalfDialWorkspaceView(
     onLaunchWindowed: (InstalledApp) -> Unit,
     onLaunchFullscreen: (InstalledApp) -> Unit,
     onTogglePin: (String) -> Unit,
+    onOpenAppInfo: (String) -> Unit = {},
     onOpenDefaultLauncher: () -> Unit,
     onReloadApps: () -> Unit,
     onSetCallsign: (String) -> Unit,
@@ -140,66 +150,75 @@ fun HalfDialWorkspaceView(
 
     @Composable
     fun NonAppsPanelContent() {
-        when (state.activeModule) {
-            HubModule.SETTINGS -> SettingsModulePanel(
-                state = state,
-                onSelectSection = { idx -> onSelectSubIndex(idx, SettingsSection.entries.size) },
-                onOpenDefaultLauncher = onOpenDefaultLauncher,
-                onReloadApps = onReloadApps,
-                onSetCallsign = onSetCallsign,
-                onToggleSfx = onToggleSfx,
-                onToggleMute = onToggleMute,
-                onToggleFullscreen = onToggleFullscreen,
-                onToggleKeepAwake = onToggleKeepAwake,
-                onToggleAutoMorph = onToggleAutoMorph,
-                onToggleEdgeColor = onToggleEdgeColor,
-                onToggleSystemFloatingAi = onToggleSystemFloatingAi,
-                onPermissionsUpdated = onPermissionsUpdated,
-                onSetLockCoverEnabled = onSetLockCoverEnabled,
-                onSetAutoLockOnScreenOff = onSetAutoLockOnScreenOff,
-                onSetBiometricUnlockEnabled = onSetBiometricUnlockEnabled,
-                onSetUseOsPhysicalLock = onSetUseOsPhysicalLock,
-                onSavePasscode = onSavePasscode,
-                onClearPasscode = onClearPasscode,
-                onSetLockWidgets = onSetLockWidgets,
-                onSetLockHeadline = onSetLockHeadline,
-                onEngageLockNow = onEngageLockNow
-            )
-            HubModule.HEALTH -> HealthSensorsPanel(
-                state = state,
-                onPermissionGranted = onPermissionsUpdated
-            )
-            HubModule.WIFI -> WifiNetworkPanel(
-                state = state,
-                onOpenWifiPanel = onOpenWifiPanel,
-                onOpenBluetoothPanel = onOpenBluetoothPanel
-            )
-            HubModule.CAMERA -> CameraOpticalPanel(
-                state = state,
-                onToggleTorch = onToggleTorch,
-                onFlipLens = onFlipCameraLens,
-                onZoomChange = onCameraZoomChange
-            )
-            HubModule.VAULT -> VaultModulePanel(
-                state = state,
-                onAddNote = onAddVaultNote,
-                onDeleteNote = onDeleteVaultNote,
-                onStartTimer = onStartVaultTimer,
-                onStopTimer = onStopVaultTimer
-            )
-            HubModule.SEARCH -> SearchModulePanel(
-                state = state,
-                onQueryChange = onSearchQueryChange,
-                onLaunchFullscreen = onLaunchFullscreen,
-                onWebSearch = onWebSearch,
-                onAskStxAi = onAskStxAi
-            )
-            HubModule.BRIEF, HubModule.STX_AI -> BriefModulePanel(
-                state = state,
-                onOpenApps = { onOpenModule(HubModule.APPS) },
-                onOpenSettings = { onOpenModule(HubModule.SETTINGS) }
-            )
-            HubModule.APPS -> Unit
+        AnimatedContent(
+            targetState = state.activeModule,
+            transitionSpec = {
+                (fadeIn(tween(180)) + scaleIn(initialScale = 0.96f, animationSpec = tween(180)))
+                    .togetherWith(fadeOut(tween(130)) + scaleOut(targetScale = 0.98f, animationSpec = tween(130)))
+            },
+            label = "module_panel_transition"
+        ) { targetMod ->
+            when (targetMod) {
+                HubModule.SETTINGS -> SettingsModulePanel(
+                    state = state,
+                    onSelectSection = { idx -> onSelectSubIndex(idx, SettingsSection.entries.size) },
+                    onOpenDefaultLauncher = onOpenDefaultLauncher,
+                    onReloadApps = onReloadApps,
+                    onSetCallsign = onSetCallsign,
+                    onToggleSfx = onToggleSfx,
+                    onToggleMute = onToggleMute,
+                    onToggleFullscreen = onToggleFullscreen,
+                    onToggleKeepAwake = onToggleKeepAwake,
+                    onToggleAutoMorph = onToggleAutoMorph,
+                    onToggleEdgeColor = onToggleEdgeColor,
+                    onToggleSystemFloatingAi = onToggleSystemFloatingAi,
+                    onPermissionsUpdated = onPermissionsUpdated,
+                    onSetLockCoverEnabled = onSetLockCoverEnabled,
+                    onSetAutoLockOnScreenOff = onSetAutoLockOnScreenOff,
+                    onSetBiometricUnlockEnabled = onSetBiometricUnlockEnabled,
+                    onSetUseOsPhysicalLock = onSetUseOsPhysicalLock,
+                    onSavePasscode = onSavePasscode,
+                    onClearPasscode = onClearPasscode,
+                    onSetLockWidgets = onSetLockWidgets,
+                    onSetLockHeadline = onSetLockHeadline,
+                    onEngageLockNow = onEngageLockNow
+                )
+                HubModule.HEALTH -> HealthSensorsPanel(
+                    state = state,
+                    onPermissionGranted = onPermissionsUpdated
+                )
+                HubModule.WIFI -> WifiNetworkPanel(
+                    state = state,
+                    onOpenWifiPanel = onOpenWifiPanel,
+                    onOpenBluetoothPanel = onOpenBluetoothPanel
+                )
+                HubModule.CAMERA -> CameraOpticalPanel(
+                    state = state,
+                    onToggleTorch = onToggleTorch,
+                    onFlipLens = onFlipCameraLens,
+                    onZoomChange = onCameraZoomChange
+                )
+                HubModule.VAULT -> VaultModulePanel(
+                    state = state,
+                    onAddNote = onAddVaultNote,
+                    onDeleteNote = onDeleteVaultNote,
+                    onStartTimer = onStartVaultTimer,
+                    onStopTimer = onStopVaultTimer
+                )
+                HubModule.SEARCH -> SearchModulePanel(
+                    state = state,
+                    onQueryChange = onSearchQueryChange,
+                    onLaunchFullscreen = onLaunchFullscreen,
+                    onWebSearch = onWebSearch,
+                    onAskStxAi = onAskStxAi
+                )
+                HubModule.BRIEF, HubModule.STX_AI -> BriefModulePanel(
+                    state = state,
+                    onOpenApps = { onOpenModule(HubModule.APPS) },
+                    onOpenSettings = { onOpenModule(HubModule.SETTINGS) }
+                )
+                HubModule.APPS -> Unit
+            }
         }
     }
 
@@ -215,23 +234,82 @@ fun HalfDialWorkspaceView(
             val activeAppIndex = state.subItemIndex.coerceIn(0, (allApps.size - 1).coerceAtLeast(0))
             val focusedApp = allApps.getOrNull(activeAppIndex)
 
-            val leftDialItems = remember(allApps) {
-                if (allApps.isEmpty()) {
-                    listOf(DialWedgeItem("scan", "00", "SCANNING", "APPS"))
-                } else {
-                    allApps.mapIndexed { idx, app ->
-                        DialWedgeItem(
-                            id = "${app.packageName}/${app.activityName}",
-                            badge = "%02d".format(idx + 1),
-                            label = app.label.uppercase().take(9),
-                            subLabel = app.categoryTag,
-                            isAccentCrimson = app.isPinnedToDock
-                        )
+            var showCenterGridInLandscape by remember { mutableStateOf(false) }
+
+            // Left Half-Dial is a Crimson-primary Launch & Action Control Reactor (distinct from Right Dial)
+            val isFloatingMode = state.leftDialLaunchMode == AppLaunchMode.FLOATING
+            var leftActionIndex by remember(isFloatingMode) {
+                mutableIntStateOf(if (isFloatingMode) 0 else 1)
+            }
+            val isFocusedPinned = focusedApp?.isPinnedToDock == true
+            val leftControlItems = remember(isFloatingMode, isFocusedPinned, allApps.size, showCenterGridInLandscape) {
+                listOf(
+                    DialWedgeItem(
+                        id = "act_float",
+                        badge = if (isFloatingMode) "ARMED" else "WIN",
+                        label = "FLOATING",
+                        subLabel = "WINDOWED",
+                        isAccentCrimson = !isFloatingMode
+                    ),
+                    DialWedgeItem(
+                        id = "act_full",
+                        badge = if (!isFloatingMode) "ARMED" else "MAX",
+                        label = "FULLSCREEN",
+                        subLabel = "LAUNCH",
+                        isAccentCrimson = true
+                    ),
+                    DialWedgeItem(
+                        id = "act_pin",
+                        badge = if (isFocusedPinned) "PINNED" else "DOCK",
+                        label = if (isFocusedPinned) "UNPIN" else "PIN DOCK",
+                        subLabel = "ARC DOCK",
+                        isAccentCrimson = isFocusedPinned
+                    ),
+                    DialWedgeItem(
+                        id = "act_grid",
+                        badge = "${allApps.size}",
+                        label = if (showCenterGridInLandscape) "CAROUSEL" else "ALL APPS",
+                        subLabel = "MATRIX",
+                        isAccentCrimson = false
+                    ),
+                    DialWedgeItem(
+                        id = "act_info",
+                        badge = "SYS",
+                        label = "APP INFO",
+                        subLabel = "DETAILS",
+                        isAccentCrimson = true
+                    )
+                )
+            }
+
+            fun activateLeftControl(idx: Int) {
+                leftActionIndex = idx
+                when (leftControlItems.getOrNull(idx)?.id) {
+                    "act_float" -> {
+                        onSelectLeftDialLaunchMode(AppLaunchMode.FLOATING)
+                        focusedApp?.let(onLaunchWindowed)
+                    }
+                    "act_full" -> {
+                        onSelectLeftDialLaunchMode(AppLaunchMode.FULLSCREEN)
+                        focusedApp?.let(onLaunchFullscreen)
+                    }
+                    "act_pin" -> {
+                        focusedApp?.let { onTogglePin(it.packageName) }
+                    }
+                    "act_grid" -> {
+                        if (isWideLandscape) {
+                            showCenterGridInLandscape = !showCenterGridInLandscape
+                        } else {
+                            onOpenModule(HubModule.SEARCH)
+                        }
+                    }
+                    "act_info" -> {
+                        focusedApp?.let { onOpenAppInfo(it.packageName) }
                     }
                 }
             }
 
-            // Keep Right Dial synced if focused app is in topRecentApps, otherwise local lightweight index
+            // Right Half-Dial shows lightweight Top Used / Recent Apps
             var rightFallbackIndex by remember { mutableIntStateOf(0) }
             val matchedRightIdx = remember(focusedApp, state.topRecentApps) {
                 if (focusedApp == null) -1
@@ -243,11 +321,8 @@ fun HalfDialWorkspaceView(
                 rightFallbackIndex.coerceIn(0, (dialItems.size - 1).coerceAtLeast(0))
             }
 
-            var showCenterGridInLandscape by remember { mutableStateOf(false) }
-
             @Composable
             fun LeftLaunchDialColumn(dialModifier: Modifier) {
-                val isFloatingMode = state.leftDialLaunchMode == AppLaunchMode.FLOATING
                 Column(
                     modifier = dialModifier,
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -258,8 +333,8 @@ fun HalfDialWorkspaceView(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(4.dp))
-                            .background(Color(0x99060D16))
-                            .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
+                            .background(Color(0x9912050B))
+                            .border(1.dp, HudCrimsonBorder, RoundedCornerShape(4.dp))
                             .padding(2.dp),
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
@@ -315,23 +390,29 @@ fun HalfDialWorkspaceView(
 
                     ArcReactorSideHalfDial(
                         side = DialSide.LEFT,
-                        items = leftDialItems,
-                        selectedIndex = activeAppIndex,
-                        onSelectIndex = { idx -> onSelectSubIndex(idx, allApps.size) },
-                        onActivateIndex = { idx ->
-                            allApps.getOrNull(idx)?.let(onLaunchWithLeftDialMode)
+                        items = leftControlItems,
+                        selectedIndex = leftActionIndex.coerceIn(0, leftControlItems.lastIndex),
+                        onSelectIndex = { idx ->
+                            leftActionIndex = idx
+                            when (leftControlItems.getOrNull(idx)?.id) {
+                                "act_float" -> onSelectLeftDialLaunchMode(AppLaunchMode.FLOATING)
+                                "act_full" -> onSelectLeftDialLaunchMode(AppLaunchMode.FULLSCREEN)
+                            }
                         },
+                        onActivateIndex = ::activateLeftControl,
                         onCenterActionClick = {
                             onSelectLeftDialLaunchMode(
                                 if (isFloatingMode) AppLaunchMode.FULLSCREEN else AppLaunchMode.FLOATING
                             )
                         },
                         centerLabel = if (isFloatingMode) "FLOAT" else "FULL",
-                        centerSubLabel = "TAP MODE",
-                        centerAccentCrimson = !isFloatingMode,
+                        centerSubLabel = "ACTION",
+                        centerAccentCrimson = true,
                         centerButtonTestTag = "left_dial_mode_toggle",
                         showOuterTicks = false,
                         showCoreSpinner = false,
+                        accentPrimary = HudCrimson,
+                        accentSecondary = HudCyan,
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
@@ -347,15 +428,15 @@ fun HalfDialWorkspaceView(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Box(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 30.dp)
                             .clip(RoundedCornerShape(4.dp))
                             .background(Color(0x99060D16))
                             .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
                             .padding(horizontal = 6.dp, vertical = 4.dp),
-                        contentAlignment = Alignment.Center
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Text(
                             text = "TOP USED · ${state.topRecentApps.size}",
@@ -365,6 +446,11 @@ fun HalfDialWorkspaceView(
                             color = HudCyan,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
+                        )
+                        SciFiDualPulseBeam(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(2.dp)
                         )
                     }
 
@@ -385,6 +471,8 @@ fun HalfDialWorkspaceView(
                         centerButtonTestTag = "half_dial_center_back",
                         showOuterTicks = false,
                         showCoreSpinner = false,
+                        accentPrimary = HudCyan,
+                        accentSecondary = HudCrimson,
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
@@ -395,66 +483,93 @@ fun HalfDialWorkspaceView(
 
             if (isWideLandscape) {
                 // Symmetrical Dual-Dial Apps Cockpit:
-                // [Left Half-Dial (Float/Fullscreen)] — [CENTER Carousel / All Apps] — [Right Half-Dial (Top Used)]
+                // [Left Launch/Action Dial] — [CENTER Carousel / All Apps] — [Right Top Used Dial]
                 val dialWidth = (maxWidth * 0.25f).coerceIn(154.dp, 206.dp)
                 Row(
                     modifier = Modifier.fillMaxSize(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    LeftLaunchDialColumn(
-                        dialModifier = Modifier
+                    StxEntrancePanel(
+                        visibleKey = "apps_left_land",
+                        slideFromX = -26f,
+                        slideFromY = 0f,
+                        modifier = Modifier
                             .width(dialWidth)
                             .fillMaxHeight()
-                    )
-
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                            if (showCenterGridInLandscape) {
-                                AllAppsFiveColGrid(
-                                    apps = allApps,
-                                    focusedIndex = activeAppIndex,
-                                    appsLoading = state.appsLoading,
-                                    onLaunchApp = onLaunchWithLeftDialMode,
-                                    showLeftRimAccent = false,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                AppFocusCarouselCard(
-                                    apps = allApps,
-                                    focusedIndex = activeAppIndex,
-                                    onSelectIndex = { idx -> onSelectSubIndex(idx, allApps.size) },
-                                    onLaunchWindowed = onLaunchWindowed,
-                                    onLaunchFullscreen = onLaunchFullscreen,
-                                    onTogglePin = onTogglePin
-                                )
-                            }
-                        }
-
-                        AppsCenterControlStrip(
-                            focusedApp = focusedApp,
-                            activeIndex = activeAppIndex,
-                            totalApps = allApps.size,
-                            showingGrid = showCenterGridInLandscape,
-                            onPrev = { onSelectSubIndex(activeAppIndex - 1, allApps.size) },
-                            onNext = { onSelectSubIndex(activeAppIndex + 1, allApps.size) },
-                            onToggleGrid = { showCenterGridInLandscape = !showCenterGridInLandscape }
-                        )
+                        LeftLaunchDialColumn(dialModifier = Modifier.fillMaxSize())
                     }
 
-                    RightRecentDialColumn(
-                        dialModifier = Modifier
+                    StxEntrancePanel(
+                        visibleKey = "apps_center_land",
+                        delayMs = 35,
+                        slideFromY = 18f,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                AnimatedContent(
+                                    targetState = showCenterGridInLandscape,
+                                    transitionSpec = {
+                                        (fadeIn(tween(180)) + scaleIn(initialScale = 0.94f, animationSpec = tween(180)))
+                                            .togetherWith(fadeOut(tween(120)))
+                                    },
+                                    label = "apps_center_grid_toggle"
+                                ) { showGrid ->
+                                    if (showGrid) {
+                                        AllAppsFiveColGrid(
+                                            apps = allApps,
+                                            focusedIndex = activeAppIndex,
+                                            appsLoading = state.appsLoading,
+                                            onLaunchApp = onLaunchWithLeftDialMode,
+                                            showLeftRimAccent = false,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        AppFocusCarouselCard(
+                                            apps = allApps,
+                                            focusedIndex = activeAppIndex,
+                                            onSelectIndex = { idx -> onSelectSubIndex(idx, allApps.size) },
+                                            onLaunchWindowed = onLaunchWindowed,
+                                            onLaunchFullscreen = onLaunchFullscreen,
+                                            onTogglePin = onTogglePin
+                                        )
+                                    }
+                                }
+                            }
+
+                            AppsCenterControlStrip(
+                                focusedApp = focusedApp,
+                                activeIndex = activeAppIndex,
+                                totalApps = allApps.size,
+                                showingGrid = showCenterGridInLandscape,
+                                onPrev = { onSelectSubIndex(activeAppIndex - 1, allApps.size) },
+                                onNext = { onSelectSubIndex(activeAppIndex + 1, allApps.size) },
+                                onToggleGrid = { showCenterGridInLandscape = !showCenterGridInLandscape }
+                            )
+                        }
+                    }
+
+                    StxEntrancePanel(
+                        visibleKey = "apps_right_land",
+                        delayMs = 60,
+                        slideFromX = 26f,
+                        slideFromY = 0f,
+                        modifier = Modifier
                             .width(dialWidth)
                             .fillMaxHeight()
-                    )
+                    ) {
+                        RightRecentDialColumn(dialModifier = Modifier.fillMaxSize())
+                    }
                 }
             } else {
                 // Portrait Dual-Tier Symmetrical Apps Cockpit:
-                // Top Row: [Left Half-Dial] — [Center App Carousel Card] — [Right Half-Dial (Top Used)]
+                // Top Row: [Left Launch/Action Dial] — [Center App Carousel Card] — [Right Top Used Dial]
                 // Bottom Row: Lightweight 5-col All Apps Grid
                 val topRowHeight = (maxHeight * 0.44f).coerceIn(212.dp, 266.dp)
                 val dialWidth = (maxWidth * 0.275f).coerceIn(96.dp, 128.dp)
@@ -468,13 +583,21 @@ fun HalfDialWorkspaceView(
                             .height(topRowHeight),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        LeftLaunchDialColumn(
-                            dialModifier = Modifier
+                        StxEntrancePanel(
+                            visibleKey = "apps_left_port",
+                            slideFromX = -22f,
+                            slideFromY = 0f,
+                            modifier = Modifier
                                 .width(dialWidth)
                                 .fillMaxHeight()
-                        )
+                        ) {
+                            LeftLaunchDialColumn(dialModifier = Modifier.fillMaxSize())
+                        }
 
-                        Box(
+                        StxEntrancePanel(
+                            visibleKey = "apps_center_port",
+                            delayMs = 35,
+                            slideFromY = -14f,
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
@@ -489,23 +612,36 @@ fun HalfDialWorkspaceView(
                             )
                         }
 
-                        RightRecentDialColumn(
-                            dialModifier = Modifier
+                        StxEntrancePanel(
+                            visibleKey = "apps_right_port",
+                            delayMs = 55,
+                            slideFromX = 22f,
+                            slideFromY = 0f,
+                            modifier = Modifier
                                 .width(dialWidth)
                                 .fillMaxHeight()
-                        )
+                        ) {
+                            RightRecentDialColumn(dialModifier = Modifier.fillMaxSize())
+                        }
                     }
 
-                    AllAppsFiveColGrid(
-                        apps = allApps,
-                        focusedIndex = activeAppIndex,
-                        appsLoading = state.appsLoading,
-                        onLaunchApp = onLaunchWithLeftDialMode,
-                        showLeftRimAccent = false,
+                    StxEntrancePanel(
+                        visibleKey = "apps_grid_port",
+                        delayMs = 75,
+                        slideFromY = 24f,
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
-                    )
+                    ) {
+                        AllAppsFiveColGrid(
+                            apps = allApps,
+                            focusedIndex = activeAppIndex,
+                            appsLoading = state.appsLoading,
+                            onLaunchApp = onLaunchWithLeftDialMode,
+                            showLeftRimAccent = false,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
             return@BoxWithConstraints

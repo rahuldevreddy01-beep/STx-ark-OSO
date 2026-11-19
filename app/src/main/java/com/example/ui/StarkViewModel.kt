@@ -152,13 +152,18 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Combine telemetry, preferences, and loaded apps into UI state
+        // Collect high-frequency telemetry updates without re-mapping the entire installedApps list
         viewModelScope.launch {
-            combine(
-                telemetryManager.telemetry,
-                preferencesFlow,
-                _rawApps
-            ) { telemetry, prefs, rawApps ->
+            telemetryManager.telemetry.collect { telemetry ->
+                _uiState.update { state ->
+                    if (state.telemetry == telemetry) state else state.copy(telemetry = telemetry)
+                }
+            }
+        }
+
+        // Only enrich/re-sort installedApps & topRecentApps when preferences or package list change
+        viewModelScope.launch {
+            combine(preferencesFlow, _rawApps) { prefs, rawApps ->
                 val enrichedApps = rawApps.map { app ->
                     app.copy(
                         isPinnedToDock = app.packageName in prefs.pinnedPackages,
@@ -169,12 +174,10 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 val topRecent = computeTopRecentApps(enrichedApps)
-                Triple(telemetry, prefs, enrichedApps to topRecent)
-            }.collect { (telemetry, prefs, appPair) ->
-                val (enrichedApps, topRecent) = appPair
+                Triple(prefs, enrichedApps, topRecent)
+            }.collect { (prefs, enrichedApps, topRecent) ->
                 _uiState.update { state ->
                     state.copy(
-                        telemetry = telemetry,
                         preferences = prefs,
                         installedApps = enrichedApps,
                         topRecentApps = topRecent
@@ -880,14 +883,19 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
     private fun computeTopRecentApps(apps: List<InstalledApp>): List<InstalledApp> {
         if (apps.isEmpty()) return emptyList()
         val distinctByPkg = apps.distinctBy { it.packageName }
+        val commonPkgTokens = setOf("camera", "chrome", "youtube", "whatsapp", "dialer", "messages", "maps", "settings", "gallery", "music")
         val sorted = distinctByPkg.sortedWith(
             compareByDescending<InstalledApp> { it.lastUsedMs }
                 .thenByDescending { it.launchCount }
                 .thenByDescending { it.isPinnedToDock }
                 .thenBy { it.isSystemApp }
+                .thenByDescending { app ->
+                    val lower = app.packageName.lowercase()
+                    commonPkgTokens.any { lower.contains(it) }
+                }
                 .thenBy { it.label.lowercase() }
         )
-        return sorted.take(8)
+        return sorted.take(6)
     }
 
     override fun onCleared() {

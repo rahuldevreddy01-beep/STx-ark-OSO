@@ -22,6 +22,8 @@ import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.os.StatFs
 import android.os.SystemClock
 import android.provider.Settings
@@ -86,19 +88,21 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
 
     fun startMonitoring() {
         if (!receiverRegistered) {
-            val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-            val sticky = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(batteryReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            } else {
-                @Suppress("DEPRECATION")
-                context.registerReceiver(batteryReceiver, filter)
+            runCatching {
+                val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+                val sticky = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    context.registerReceiver(batteryReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                } else {
+                    @Suppress("DEPRECATION")
+                    context.registerReceiver(batteryReceiver, filter)
+                }
+                if (sticky != null) parseBatteryIntent(sticky)
+                receiverRegistered = true
             }
-            if (sticky != null) parseBatteryIntent(sticky)
-            receiverRegistered = true
         }
 
         registerSensors()
-        runCatching { cameraManager?.registerTorchCallback(torchCallback, null) }
+        runCatching { cameraManager?.registerTorchCallback(torchCallback, Handler(Looper.getMainLooper())) }
         refreshSystemSnapshot()
     }
 
@@ -115,17 +119,17 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
         val sm = sensorManager ?: return
         runCatching { sm.unregisterListener(this) }
 
-        val stepSensor = sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
-        val gyroSensor = sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
-        val accelSensor = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        val rotSensor = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-        val lightSensor = sm.getDefaultSensor(Sensor.TYPE_LIGHT)
+        val stepSensor = runCatching { sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) }.getOrNull()
+        val gyroSensor = runCatching { sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE) }.getOrNull()
+        val accelSensor = runCatching { sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) }.getOrNull()
+        val rotSensor = runCatching { sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR) }.getOrNull()
+        val lightSensor = runCatching { sm.getDefaultSensor(Sensor.TYPE_LIGHT) }.getOrNull()
 
-        stepSensor?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
-        gyroSensor?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
-        accelSensor?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
-        rotSensor?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
-        lightSensor?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
+        stepSensor?.let { runCatching { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) } }
+        gyroSensor?.let { runCatching { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) } }
+        accelSensor?.let { runCatching { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) } }
+        rotSensor?.let { runCatching { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) } }
+        lightSensor?.let { runCatching { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) } }
 
         _telemetry.update {
             it.copy(
@@ -137,7 +141,7 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
 
     fun refreshSystemSnapshot() {
         val memInfo = ActivityManager.MemoryInfo()
-        activityManager?.getMemoryInfo(memInfo)
+        runCatching { activityManager?.getMemoryInfo(memInfo) }
         val totalMb = (memInfo.totalMem / (1024L * 1024L)).coerceAtLeast(1L)
         val availMb = memInfo.availMem / (1024L * 1024L)
         val usedMb = (totalMb - availMb).coerceAtLeast(0L)
@@ -157,11 +161,15 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
         val secs = uptimeSec % 60L
         val uptimeStr = "%02d:%02d:%02d".format(hours, mins, secs)
 
-        val netSnapshot = readNetworkSnapshot()
-        val btSnapshot = readBluetoothSnapshot()
+        val netSnapshot = runCatching { readNetworkSnapshot() }.getOrElse {
+            NetworkSnapshot(false, false, "OFFLINE", -100, 0, 0, 0, "--", "--", "--", "OFFLINE")
+        }
+        val btSnapshot = runCatching { readBluetoothSnapshot() }.getOrDefault(Triple(false, 0, "OFF"))
 
-        val ringerMuted = audioManager?.ringerMode == AudioManager.RINGER_MODE_SILENT ||
-            audioManager?.ringerMode == AudioManager.RINGER_MODE_VIBRATE
+        val ringerMuted = runCatching {
+            audioManager?.ringerMode == AudioManager.RINGER_MODE_SILENT ||
+                audioManager?.ringerMode == AudioManager.RINGER_MODE_VIBRATE
+        }.getOrDefault(false)
 
         _telemetry.update {
             it.copy(
@@ -271,59 +279,67 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
     }
 
     override fun onSensorChanged(event: SensorEvent) {
-        when (event.sensor.type) {
-            Sensor.TYPE_STEP_COUNTER -> {
-                val raw = event.values[0]
-                if (stepBaseline == null) stepBaseline = raw
-                val delta = (raw - (stepBaseline ?: raw)).roundToInt().coerceAtLeast(0)
-                // Show device hardware counter plus session delta or direct hardware value if > 0
-                val totalDisplay = raw.roundToInt().coerceAtLeast(delta)
-                _telemetry.update {
-                    it.copy(stepsCount = totalDisplay, stepsSensorAvailable = true)
+        val values = event.values ?: return
+        runCatching {
+            when (event.sensor.type) {
+                Sensor.TYPE_STEP_COUNTER -> {
+                    if (values.isEmpty()) return
+                    val raw = values[0]
+                    if (!raw.isFinite()) return
+                    if (stepBaseline == null) stepBaseline = raw
+                    val delta = (raw - (stepBaseline ?: raw)).roundToInt().coerceAtLeast(0)
+                    val totalDisplay = raw.roundToInt().coerceAtLeast(delta)
+                    _telemetry.update {
+                        it.copy(stepsCount = totalDisplay, stepsSensorAvailable = true)
+                    }
                 }
-            }
 
-            Sensor.TYPE_GYROSCOPE -> {
-                val gx = event.values[0]
-                val gy = event.values[1]
-                val gz = event.values[2]
-                val mag = sqrt(gx * gx + gy * gy + gz * gz)
-                synchronized(gyroHistoryBuffer) {
-                    if (gyroHistoryBuffer.size >= 36) gyroHistoryBuffer.removeFirst()
-                    gyroHistoryBuffer.addLast(mag)
+                Sensor.TYPE_GYROSCOPE -> {
+                    if (values.size < 3) return
+                    val gx = values[0]
+                    val gy = values[1]
+                    val gz = values[2]
+                    val mag = sqrt(gx * gx + gy * gy + gz * gz)
+                    synchronized(gyroHistoryBuffer) {
+                        if (gyroHistoryBuffer.size >= 36) gyroHistoryBuffer.removeFirst()
+                        gyroHistoryBuffer.addLast(mag)
+                    }
+                    pushThrottledSensorUpdate(gx = gx, gy = gy, gz = gz)
                 }
-                pushThrottledSensorUpdate(gx = gx, gy = gy, gz = gz)
-            }
 
-            Sensor.TYPE_ACCELEROMETER -> {
-                pushThrottledSensorUpdate(
-                    ax = event.values[0],
-                    ay = event.values[1],
-                    az = event.values[2]
-                )
-            }
+                Sensor.TYPE_ACCELEROMETER -> {
+                    if (values.size < 3) return
+                    pushThrottledSensorUpdate(
+                        ax = values[0],
+                        ay = values[1],
+                        az = values[2]
+                    )
+                }
 
-            Sensor.TYPE_ROTATION_VECTOR -> {
-                SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-                val orientation = FloatArray(3)
-                SensorManager.getOrientation(rotationMatrix, orientation)
-                val azimuthRad = orientation[0]
-                val pitchRad = orientation[1]
-                val rollRad = orientation[2]
-                val deg = ((Math.toDegrees(azimuthRad.toDouble()) + 360.0) % 360.0).roundToInt()
-                val cardinal = azimuthToCardinal(deg)
-                val pitch = Math.toDegrees(pitchRad.toDouble()).roundToInt()
-                val roll = Math.toDegrees(rollRad.toDouble()).roundToInt()
-                pushThrottledSensorUpdate(
-                    azimuth = deg,
-                    cardinal = cardinal,
-                    pitch = pitch,
-                    roll = roll
-                )
-            }
+                Sensor.TYPE_ROTATION_VECTOR -> {
+                    if (values.size < 3) return
+                    SensorManager.getRotationMatrixFromVector(rotationMatrix, values)
+                    val orientation = FloatArray(3)
+                    SensorManager.getOrientation(rotationMatrix, orientation)
+                    val azimuthRad = orientation[0]
+                    val pitchRad = orientation[1]
+                    val rollRad = orientation[2]
+                    val deg = ((Math.toDegrees(azimuthRad.toDouble()) + 360.0) % 360.0).roundToInt()
+                    val cardinal = azimuthToCardinal(deg)
+                    val pitch = Math.toDegrees(pitchRad.toDouble()).roundToInt()
+                    val roll = Math.toDegrees(rollRad.toDouble()).roundToInt()
+                    pushThrottledSensorUpdate(
+                        azimuth = deg,
+                        cardinal = cardinal,
+                        pitch = pitch,
+                        roll = roll
+                    )
+                }
 
-            Sensor.TYPE_LIGHT -> {
-                pushThrottledSensorUpdate(lux = event.values[0])
+                Sensor.TYPE_LIGHT -> {
+                    if (values.isEmpty()) return
+                    pushThrottledSensorUpdate(lux = values[0])
+                }
             }
         }
     }
@@ -440,9 +456,9 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
 
     private fun readNetworkSnapshot(): NetworkSnapshot {
         val wifiEnabled = runCatching { wifiManager?.isWifiEnabled ?: false }.getOrDefault(false)
-        val activeNetwork = connectivityManager?.activeNetwork
-        val caps = activeNetwork?.let { connectivityManager.getNetworkCapabilities(it) }
-        val linkProps = activeNetwork?.let { connectivityManager.getLinkProperties(it) }
+        val activeNetwork = runCatching { connectivityManager?.activeNetwork }.getOrNull()
+        val caps = activeNetwork?.let { runCatching { connectivityManager?.getNetworkCapabilities(it) }.getOrNull() }
+        val linkProps = activeNetwork?.let { runCatching { connectivityManager?.getLinkProperties(it) }.getOrNull() }
 
         val hasWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
         val hasCell = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true

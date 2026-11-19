@@ -1,10 +1,15 @@
 package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,6 +22,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -99,15 +105,25 @@ fun BoxScope.FloatingStxAiOverlay(
 
     LaunchedEffect(recentMessages.size, state.stxOverlayOpen) {
         if (state.stxOverlayOpen && recentMessages.isNotEmpty()) {
-            listState.animateScrollToItem(recentMessages.lastIndex)
+            runCatching { listState.animateScrollToItem(recentMessages.lastIndex) }
         }
     }
 
     // Floating STX AI Overlay Window
     AnimatedVisibility(
         visible = state.stxOverlayOpen,
-        enter = fadeIn() + scaleIn(initialScale = 0.92f),
-        exit = fadeOut() + scaleOut(targetScale = 0.92f),
+        enter = fadeIn(tween(180)) +
+            slideInVertically(
+                initialOffsetY = { it / 6 },
+                animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow)
+            ) +
+            scaleIn(
+                initialScale = 0.88f,
+                animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow)
+            ),
+        exit = fadeOut(tween(140)) +
+            slideOutVertically(targetOffsetY = { it / 8 }, animationSpec = tween(140)) +
+            scaleOut(targetScale = 0.90f, animationSpec = tween(140)),
         modifier = Modifier
             .align(Alignment.BottomEnd)
             .padding(end = 14.dp, bottom = 68.dp, start = 14.dp)
@@ -250,6 +266,13 @@ fun BoxScope.FloatingStxAiOverlay(
                         }
                     }
                 }
+
+                SciFiDualPulseBeam(
+                    isAlertCrimson = voiceListening || state.aiThinking,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.5.dp)
+                )
 
                 // Compact message feed
                 LazyColumn(

@@ -32,12 +32,17 @@ class VoiceCommandManager(
     private val sessionCounter = AtomicInteger(0)
     @Volatile
     private var destroyed = false
+    @Volatile
+    private var lastToggleMs = 0L
 
     private val _voiceState = MutableStateFlow(VoiceUiState())
     val voiceState: StateFlow<VoiceUiState> = _voiceState.asStateFlow()
 
     fun toggleListening() {
         if (destroyed) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastToggleMs < 550L) return
+        lastToggleMs = now
         if (_voiceState.value.isListening) {
             stopListening()
         } else {

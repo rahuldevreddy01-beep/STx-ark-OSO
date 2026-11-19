@@ -170,31 +170,35 @@ fun LockscreenCoverOverlay(
             return
         }
         bioStatusMsg = null
-        val executor = ContextCompat.getMainExecutor(context)
-        val prompt = BiometricPrompt(
-            activity,
-            executor,
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    onBiometricAuthenticated()
-                }
+        runCatching {
+            val executor = ContextCompat.getMainExecutor(context)
+            val prompt = BiometricPrompt(
+                activity,
+                executor,
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        onBiometricAuthenticated()
+                    }
 
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    bioStatusMsg = errString.toString().uppercase()
-                }
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        bioStatusMsg = errString.toString().uppercase()
+                    }
 
-                override fun onAuthenticationFailed() {
-                    bioStatusMsg = "BIOMETRIC NOT RECOGNIZED"
+                    override fun onAuthenticationFailed() {
+                        bioStatusMsg = "BIOMETRIC NOT RECOGNIZED"
+                    }
                 }
-            }
-        )
-        val info = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("STX OS AUTHENTICATION")
-            .setSubtitle("Verify fingerprint or face to unlock deck")
-            .setNegativeButtonText(if (hasPasscode) "USE PASSCODE" else "CANCEL")
-            .setConfirmationRequired(false)
-            .build()
-        prompt.authenticate(info)
+            )
+            val info = BiometricPrompt.PromptInfo.Builder()
+                .setTitle("STX OS AUTHENTICATION")
+                .setSubtitle("Verify fingerprint or face to unlock deck")
+                .setNegativeButtonText(if (hasPasscode) "USE PASSCODE" else "CANCEL")
+                .setConfirmationRequired(false)
+                .build()
+            prompt.authenticate(info)
+        }.onFailure {
+            bioStatusMsg = "BIOMETRIC PROMPT UNAVAILABLE"
+        }
     }
 
     // Auto-check PIN once length >= 4
@@ -555,10 +559,16 @@ private fun LockArcHeroSection(
                 val r = size.minDimension * 0.46f
                 val c = Offset(size.width / 2f, size.height / 2f)
 
-                // Clean static perimeter ring
+                // Crimson + Cyan split perimeter ticks
+                drawCircle(
+                    color = HudCrimson.copy(alpha = 0.42f),
+                    radius = r * 0.99f,
+                    center = c,
+                    style = Stroke(width = 1.2.dp.toPx())
+                )
                 drawCircle(
                     color = HudCyan.copy(alpha = 0.28f),
-                    radius = r * 0.96f,
+                    radius = r * 0.94f,
                     center = c,
                     style = Stroke(width = 1.dp.toPx())
                 )
@@ -585,9 +595,9 @@ private fun LockArcHeroSection(
                     )
                     if (chargeOrbit != null) {
                         drawArc(
-                            color = HudIce.copy(alpha = 0.88f),
+                            color = HudCrimson.copy(alpha = 0.90f),
                             startAngle = chargeOrbit,
-                            sweepAngle = 36f,
+                            sweepAngle = 42f,
                             useCenter = false,
                             topLeft = Offset(c.x - ringR, c.y - ringR),
                             size = Size(ringR * 2f, ringR * 2f),
@@ -598,7 +608,7 @@ private fun LockArcHeroSection(
 
                 // Subtle static inner ring
                 drawCircle(
-                    color = HudCyan.copy(alpha = 0.45f),
+                    color = HudCrimson.copy(alpha = 0.42f),
                     radius = r * 0.70f,
                     center = c,
                     style = Stroke(width = 1.5.dp.toPx())

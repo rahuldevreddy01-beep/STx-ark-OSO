@@ -84,15 +84,26 @@ class StxFloatingAiService : Service() {
         super.onCreate()
         activeInstance = WeakReference(this)
         windowManager = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
-        startForegroundSafely()
+        if (!startForegroundSafely()) {
+            stopSelf()
+            return
+        }
         createOverlayUi()
         syncVisibility()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (!Settings.canDrawOverlays(this)) {
+            startForegroundSafely()
             stopSelf()
             return START_NOT_STICKY
+        }
+        if (rootContainer == null) {
+            if (!startForegroundSafely()) {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            createOverlayUi()
         }
         syncVisibility()
         return START_STICKY
@@ -107,18 +118,20 @@ class StxFloatingAiService : Service() {
         super.onDestroy()
     }
 
-    private fun startForegroundSafely() {
+    private fun startForegroundSafely(): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = getSystemService(NotificationManager::class.java)
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "STX AI Floating Overlay",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Keeps the STX AI assistant accessible over any app"
-                setShowBadge(false)
+            runCatching {
+                val nm = getSystemService(NotificationManager::class.java)
+                val channel = NotificationChannel(
+                    CHANNEL_ID,
+                    "STX AI Floating Overlay",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "Keeps the STX AI assistant accessible over any app"
+                    setShowBadge(false)
+                }
+                nm?.createNotificationChannel(channel)
             }
-            nm?.createNotificationChannel(channel)
         }
 
         val openIntent = Intent(this, MainActivity::class.java).apply {
@@ -140,7 +153,7 @@ class StxFloatingAiService : Service() {
             .setContentIntent(pi)
             .build()
 
-        runCatching {
+        return runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 startForeground(
                     NOTIF_ID,
@@ -150,7 +163,8 @@ class StxFloatingAiService : Service() {
             } else {
                 startForeground(NOTIF_ID, notification)
             }
-        }
+            true
+        }.getOrDefault(false)
     }
 
     private fun createOverlayUi() {

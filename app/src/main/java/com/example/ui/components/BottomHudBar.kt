@@ -6,9 +6,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -59,7 +61,7 @@ fun BottomHudBar(
 ) {
     val barModifier = modifier
         .fillMaxWidth()
-        .background(ObsidianPanel.copy(alpha = 0.88f))
+        .background(ObsidianPanel.copy(alpha = 0.92f))
         .then(
             if (!isFullscreen) {
                 Modifier.windowInsetsPadding(WindowInsets.navigationBars)
@@ -67,13 +69,22 @@ fun BottomHudBar(
                 Modifier
             }
         )
-        .padding(horizontal = 10.dp, vertical = 6.dp)
 
-    Row(
-        modifier = barModifier.horizontalScroll(rememberScrollState()),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
-    ) {
+    Column(modifier = barModifier) {
+        SciFiDualPulseBeam(
+            isAlertCrimson = currentMode == StarkMode.HALF_DIAL || isFullscreen,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+        ) {
         HudActionChip(
             label = "FOLD / ROTATE",
             icon = Icons.Default.Refresh,
@@ -149,6 +160,7 @@ fun BottomHudBar(
             testTag = "bottom_fullscreen_button",
             onClick = onToggleFullscreen
         )
+        }
     }
 }
 

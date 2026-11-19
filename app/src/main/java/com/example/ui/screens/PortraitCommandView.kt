@@ -74,6 +74,8 @@ import com.example.model.InstalledApp
 import com.example.ui.StarkUiState
 import com.example.ui.components.ArcReactorFullDial
 import com.example.ui.components.HudBracketCard
+import com.example.ui.components.SciFiDualPulseBeam
+import com.example.ui.components.StxEntrancePanel
 import com.example.ui.theme.HudCrimson
 import com.example.ui.theme.HudCrimsonBorder
 import com.example.ui.theme.HudCrimsonSubtle
@@ -190,44 +192,50 @@ fun PortraitCommandView(
         }
 
         // Upper Hero: Smooth Bearing Arc Reactor Wheel + Battery Charging & RAM Micro-Gauges
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(200.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+        StxEntrancePanel(
+            visibleKey = "portrait_hero",
+            slideFromY = -18f,
+            initialScale = 0.90f
         ) {
-            CircularMicroGauge(
-                value = "${state.telemetry.batteryPercent}%",
-                label = if (state.telemetry.isCharging) "CHG⚡" else "PWR",
-                fraction = state.telemetry.batteryPercent / 100f,
-                ringColor = if (state.telemetry.isCharging) HudEmerald else HudCyan,
-                isCharging = state.telemetry.isCharging,
-                modifier = Modifier.size(56.dp)
-            )
-
-            ArcReactorFullDial(
-                items = dialItems,
-                selectedIndex = state.hubSelectedIndex,
-                onSelectIndex = onSelectHubIndex,
-                onActivateIndex = { idx ->
-                    onOpenModule(hubModules.getOrElse(idx) { HubModule.APPS })
-                },
-                compactMode = true,
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxSize()
-                    .padding(horizontal = 4.dp)
-            )
+                    .fillMaxWidth()
+                    .height(200.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                CircularMicroGauge(
+                    value = "${state.telemetry.batteryPercent}%",
+                    label = if (state.telemetry.isCharging) "CHG⚡" else "PWR",
+                    fraction = state.telemetry.batteryPercent / 100f,
+                    ringColor = if (state.telemetry.isCharging) HudEmerald else HudCyan,
+                    isCharging = state.telemetry.isCharging,
+                    modifier = Modifier.size(56.dp)
+                )
 
-            CircularMicroGauge(
-                value = "${state.telemetry.ramUsedPercent}%",
-                label = "MEM",
-                fraction = state.telemetry.ramUsedPercent / 100f,
-                ringColor = HudCrimson,
-                isCharging = false,
-                modifier = Modifier.size(56.dp)
-            )
+                ArcReactorFullDial(
+                    items = dialItems,
+                    selectedIndex = state.hubSelectedIndex,
+                    onSelectIndex = onSelectHubIndex,
+                    onActivateIndex = { idx ->
+                        onOpenModule(hubModules.getOrElse(idx) { HubModule.APPS })
+                    },
+                    compactMode = true,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .padding(horizontal = 4.dp)
+                )
+
+                CircularMicroGauge(
+                    value = "${state.telemetry.ramUsedPercent}%",
+                    label = "MEM",
+                    fraction = state.telemetry.ramUsedPercent / 100f,
+                    ringColor = HudCrimson,
+                    isCharging = false,
+                    modifier = Modifier.size(56.dp)
+                )
+            }
         }
 
         // Sub-bar: Battery Temp, Heading, Real Step Counter
@@ -268,6 +276,11 @@ fun PortraitCommandView(
         }
 
         // Middle Command & Briefing Deck
+        StxEntrancePanel(
+            visibleKey = "portrait_deck",
+            delayMs = 40,
+            slideFromY = 20f
+        ) {
         HudBracketCard(contentPadding = 10.dp) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -276,6 +289,12 @@ fun PortraitCommandView(
                     color = HudIce,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+                SciFiDualPulseBeam(
+                    isAlertCrimson = voiceListening,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
                 )
                 Text(
                     text = if (voiceListening && voicePartial.isNotBlank()) {
@@ -392,8 +411,14 @@ fun PortraitCommandView(
                 )
             }
         }
+        }
 
         // 6 Real Quick Hardware Toggles (2 compact rows of 3)
+        StxEntrancePanel(
+            visibleKey = "portrait_toggles",
+            delayMs = 70,
+            slideFromY = 20f
+        ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -454,8 +479,14 @@ fun PortraitCommandView(
                 )
             }
         }
+        }
 
         // Bottom Inverted Arc Quick-Launch Dock
+        StxEntrancePanel(
+            visibleKey = "portrait_dock",
+            delayMs = 95,
+            slideFromY = 22f
+        ) {
         HudBracketCard(
             borderColor = HudCyanBorder,
             contentPadding = 8.dp
@@ -517,6 +548,7 @@ fun PortraitCommandView(
                         .background(HudCrimson)
                 )
             }
+        }
         }
 
         Spacer(modifier = Modifier.height(2.dp))

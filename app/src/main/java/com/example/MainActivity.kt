@@ -28,6 +28,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -70,6 +71,7 @@ import com.example.security.configureAppCheck
 import com.example.service.StxFloatingAiService
 import com.example.ui.StarkUiState
 import com.example.ui.StarkViewModel
+import com.example.ui.components.ArcReactorBootPulse
 import com.example.ui.components.BottomHudBar
 import com.example.ui.components.EdgeFlashOverlay
 import com.example.ui.components.FloatingStxAiOverlay
@@ -476,8 +478,8 @@ fun StarkOsRoot(
                 AnimatedContent(
                     targetState = state.mode,
                     transitionSpec = {
-                        (fadeIn(tween(180)) + scaleIn(initialScale = 0.985f, animationSpec = tween(180)))
-                            .togetherWith(fadeOut(tween(140)))
+                        (fadeIn(tween(200)) + scaleIn(initialScale = 0.96f, animationSpec = tween(200)))
+                            .togetherWith(fadeOut(tween(150)) + scaleOut(targetScale = 1.02f, animationSpec = tween(150)))
                     },
                     label = "stx_mode_transition"
                 ) { targetMode ->
@@ -530,6 +532,7 @@ fun StarkOsRoot(
                             onLaunchWindowed = viewModel::launchAppWindowed,
                             onLaunchFullscreen = viewModel::launchAppFullscreen,
                             onTogglePin = viewModel::togglePinApp,
+                            onOpenAppInfo = viewModel::openAppInfo,
                             onOpenDefaultLauncher = viewModel::openDefaultLauncherSettings,
                             onReloadApps = viewModel::reloadInstalledApps,
                             onSetCallsign = viewModel::setOperatorCallsign,
@@ -614,7 +617,11 @@ fun StarkOsRoot(
         }
 
         // 4. Full-Screen Arc Reactor Lockscreen Cover (10s awake auto-sleep)
-        if (state.telemetry.touchLocked) {
+        AnimatedVisibility(
+            visible = state.telemetry.touchLocked,
+            enter = fadeIn(tween(200)) + scaleIn(initialScale = 0.94f, animationSpec = tween(200)),
+            exit = fadeOut(tween(200)) + scaleOut(targetScale = 1.05f, animationSpec = tween(200))
+        ) {
             LockscreenCoverOverlay(
                 state = state,
                 onAttemptPasscode = { code ->
@@ -634,6 +641,14 @@ fun StarkOsRoot(
                 onAskStxAi = viewModel::askStxAiOnLockscreen,
                 onDimChange = onSetWindowDimmed,
                 onIdleSleepTimeout = viewModel::onLockscreenIdleSleep
+            )
+        }
+
+        // 4b. Signature Arc Reactor Boot / Unlock Energy Pulse
+        if (!state.telemetry.touchLocked) {
+            ArcReactorBootPulse(
+                triggerKey = state.telemetry.touchLocked,
+                modifier = Modifier.fillMaxSize()
             )
         }
 

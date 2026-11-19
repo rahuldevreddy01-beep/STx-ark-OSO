@@ -15,14 +15,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.ui.theme.HudCrimson
 import com.example.ui.theme.HudCyan
 import com.example.ui.theme.HudCyanBorder
+import com.example.ui.theme.HudElectricBlue
 import com.example.ui.theme.ObsidianGlass
 import com.example.ui.theme.ObsidianVoid
 
@@ -33,25 +36,53 @@ fun StarkObsidianBackground(modifier: Modifier = Modifier) {
             .fillMaxSize()
             .background(ObsidianVoid)
     ) {
-        // Subtle radial deep atmospheric HUD glow (no blocky square grids)
+        // Deep jet-black atmosphere with dual Red + Electric Blue sci-fi reactor glow
         drawRect(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color(0xFF071624),
-                    Color(0xFF030810),
+                    Color(0xFF071326),
+                    Color(0xFF03070F),
                     ObsidianVoid
                 ),
-                center = Offset(size.width * 0.5f, size.height * 0.44f),
+                center = Offset(size.width * 0.35f, size.height * 0.38f),
                 radius = size.maxDimension * 0.72f
             )
         )
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color(0x22FF1F42),
+                    Color(0x0AFF1F42),
+                    Color.Transparent
+                ),
+                center = Offset(size.width * 0.76f, size.height * 0.62f),
+                radius = size.maxDimension * 0.56f
+            )
+        )
 
-        // Subtle optical scanlines (very faint, 6dp step, zero flicker)
-        val stepPx = 6.dp.toPx()
+        // Subtle optical concentric sci-fi calibration rings
+        val cx = size.width * 0.5f
+        val cy = size.height * 0.48f
+        val baseR = size.minDimension * 0.42f
+        drawCircle(
+            color = HudElectricBlue.copy(alpha = 0.08f),
+            radius = baseR,
+            center = Offset(cx, cy),
+            style = Stroke(width = 1.dp.toPx())
+        )
+        drawCircle(
+            color = HudCrimson.copy(alpha = 0.07f),
+            radius = baseR * 0.74f,
+            center = Offset(cx, cy),
+            style = Stroke(width = 1.dp.toPx())
+        )
+
+        // Faint precision scanlines
+        val stepPx = 7.dp.toPx()
         var y = 0f
         while (y < size.height) {
             drawLine(
-                color = Color(0x0900F0FF),
+                color = Color(0x0700EAFF),
                 start = Offset(0f, y),
                 end = Offset(size.width, y),
                 strokeWidth = 1f
@@ -78,22 +109,20 @@ fun EdgeFlashOverlay(
     if (alpha <= 0.01f) return
 
     val coreColor = if (crimsonMode) HudCrimson else Color(0xFFE6FCFF)
-    val glowColor = if (crimsonMode) Color(0xCCFF2A4B) else HudCyan
+    val glowColor = if (crimsonMode) Color(0xCCFF1F42) else HudCyan
 
     Canvas(modifier = modifier.fillMaxSize()) {
         val edgeDepth = 42.dp.toPx()
         val strokeW = 4.dp.toPx()
 
-        // Top edge glow
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(glowColor.copy(alpha = 0.65f * alpha), Color.Transparent),
                 startY = 0f,
                 endY = edgeDepth
             ),
-            size = androidx.compose.ui.geometry.Size(size.width, edgeDepth)
+            size = Size(size.width, edgeDepth)
         )
-        // Bottom edge glow
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(Color.Transparent, glowColor.copy(alpha = 0.65f * alpha)),
@@ -101,18 +130,16 @@ fun EdgeFlashOverlay(
                 endY = size.height
             ),
             topLeft = Offset(0f, size.height - edgeDepth),
-            size = androidx.compose.ui.geometry.Size(size.width, edgeDepth)
+            size = Size(size.width, edgeDepth)
         )
-        // Left edge glow
         drawRect(
             brush = Brush.horizontalGradient(
                 colors = listOf(glowColor.copy(alpha = 0.65f * alpha), Color.Transparent),
                 startX = 0f,
                 endX = edgeDepth
             ),
-            size = androidx.compose.ui.geometry.Size(edgeDepth, size.height)
+            size = Size(edgeDepth, size.height)
         )
-        // Right edge glow
         drawRect(
             brush = Brush.horizontalGradient(
                 colors = listOf(Color.Transparent, glowColor.copy(alpha = 0.65f * alpha)),
@@ -120,15 +147,14 @@ fun EdgeFlashOverlay(
                 endX = size.width
             ),
             topLeft = Offset(size.width - edgeDepth, 0f),
-            size = androidx.compose.ui.geometry.Size(edgeDepth, size.height)
+            size = Size(edgeDepth, size.height)
         )
 
-        // Crisp luminous inner perimeter border around all 4 edges
         drawRect(
             color = coreColor.copy(alpha = 0.9f * alpha),
             topLeft = Offset(strokeW / 2f, strokeW / 2f),
-            size = androidx.compose.ui.geometry.Size(size.width - strokeW, size.height - strokeW),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeW)
+            size = Size(size.width - strokeW, size.height - strokeW),
+            style = Stroke(width = strokeW)
         )
     }
 }
@@ -149,20 +175,20 @@ fun HudBracketCard(
             .background(ObsidianGlass)
             .border(1.dp, borderColor, shape)
     ) {
-        // Signature Stark HUD corner brackets
+        // Signature dual Red + Electric Blue sci-fi HUD corner brackets
         Canvas(modifier = Modifier.matchParentSize()) {
             val len = 12.dp.toPx()
             val stroke = 2.dp.toPx()
-            // Top-left
+            // Top-left (Electric Cyan/Blue)
             drawLine(accentCornerColor, Offset(0f, stroke / 2), Offset(len, stroke / 2), stroke, StrokeCap.Square)
             drawLine(accentCornerColor, Offset(stroke / 2, 0f), Offset(stroke / 2, len), stroke, StrokeCap.Square)
-            // Top-right
-            drawLine(accentCornerColor, Offset(size.width - len, stroke / 2), Offset(size.width, stroke / 2), stroke, StrokeCap.Square)
-            drawLine(accentCornerColor, Offset(size.width - stroke / 2, 0f), Offset(size.width - stroke / 2, len), stroke, StrokeCap.Square)
-            // Bottom-left
+            // Top-right (Crimson Red accent balance)
+            drawLine(bottomLeftAccent, Offset(size.width - len, stroke / 2), Offset(size.width, stroke / 2), stroke, StrokeCap.Square)
+            drawLine(bottomLeftAccent, Offset(size.width - stroke / 2, 0f), Offset(size.width - stroke / 2, len), stroke, StrokeCap.Square)
+            // Bottom-left (Crimson Red)
             drawLine(bottomLeftAccent, Offset(0f, size.height - stroke / 2), Offset(len, size.height - stroke / 2), stroke, StrokeCap.Square)
             drawLine(bottomLeftAccent, Offset(stroke / 2, size.height - len), Offset(stroke / 2, size.height), stroke, StrokeCap.Square)
-            // Bottom-right
+            // Bottom-right (Electric Cyan/Blue)
             drawLine(accentCornerColor, Offset(size.width - len, size.height - stroke / 2), Offset(size.width, size.height - stroke / 2), stroke, StrokeCap.Square)
             drawLine(accentCornerColor, Offset(size.width - stroke / 2, size.height - len), Offset(size.width - stroke / 2, size.height), stroke, StrokeCap.Square)
         }

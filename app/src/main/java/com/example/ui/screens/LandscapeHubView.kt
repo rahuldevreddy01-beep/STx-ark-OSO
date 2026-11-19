@@ -60,6 +60,8 @@ import com.example.model.DialWedgeItem
 import com.example.model.HubModule
 import com.example.ui.StarkUiState
 import com.example.ui.components.ArcReactorFullDial
+import com.example.ui.components.SciFiDualPulseBeam
+import com.example.ui.components.StxEntrancePanel
 import com.example.ui.theme.HudCrimson
 import com.example.ui.theme.HudCrimsonBorder
 import com.example.ui.theme.HudCrimsonSubtle
@@ -113,13 +115,20 @@ fun LandscapeHubView(
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // LEFT SIDEBAR (01) — Real Android Battery, Network, RAM, Compass & Steps
-        Column(
+        StxEntrancePanel(
+            visibleKey = "hub_left_land",
+            slideFromX = -26f,
+            slideFromY = 0f,
             modifier = Modifier
                 .weight(0.26f)
                 .fillMaxHeight()
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.SpaceBetween
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = "01 // TELEMETRY",
@@ -145,6 +154,12 @@ fun LandscapeHubView(
                     color = HudCyan,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+                SciFiDualPulseBeam(
+                    isAlertCrimson = state.telemetry.batteryPercent <= 20,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
                 )
             }
 
@@ -233,6 +248,7 @@ fun LandscapeHubView(
                 }
             }
         }
+        }
 
         // Divider hairline
         Box(
@@ -243,12 +259,18 @@ fun LandscapeHubView(
         )
 
         // CENTERPIECE — Lubricated Bearing Rotary Arc-Reactor Dial
-        Column(
+        StxEntrancePanel(
+            visibleKey = "hub_center_land",
+            delayMs = 35,
+            slideFromY = 16f,
             modifier = Modifier
                 .weight(0.48f)
-                .fillMaxHeight(),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .fillMaxHeight()
         ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -357,6 +379,7 @@ fun LandscapeHubView(
                 }
             }
         }
+        }
 
         // Divider hairline
         Box(
@@ -367,13 +390,21 @@ fun LandscapeHubView(
         )
 
         // RIGHT SIDEBAR (02) — Real Uptime, Temp & 6 Real Hardware Quick Toggles
-        Column(
+        StxEntrancePanel(
+            visibleKey = "hub_right_land",
+            delayMs = 60,
+            slideFromX = 26f,
+            slideFromY = 0f,
             modifier = Modifier
                 .weight(0.26f)
                 .fillMaxHeight()
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.SpaceBetween
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.End,
@@ -441,6 +472,12 @@ fun LandscapeHubView(
             Spacer(modifier = Modifier.height(6.dp))
 
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SciFiDualPulseBeam(
+                    isAlertCrimson = state.telemetry.flashlightOn || state.telemetry.touchLocked,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -510,6 +547,7 @@ fun LandscapeHubView(
                     )
                 }
             }
+        }
         }
     }
 }
@@ -599,8 +637,8 @@ fun CompassMiniRadar(
         val r = size.minDimension / 2f
         val c = Offset(size.width / 2f, size.height / 2f)
         drawCircle(color = Color(0xFF07131E), radius = r, center = c)
-        drawCircle(color = HudCyan.copy(alpha = 0.45f), radius = r, center = c, style = Stroke(1.5f))
-        drawCircle(color = HudCyan.copy(alpha = 0.25f), radius = r * 0.55f, center = c, style = Stroke(1f))
+        drawCircle(color = HudCyan.copy(alpha = 0.55f), radius = r, center = c, style = Stroke(1.5f))
+        drawCircle(color = HudCrimson.copy(alpha = 0.40f), radius = r * 0.58f, center = c, style = Stroke(1.2f))
 
         val rad = Math.toRadians((azimuthDeg - 90).toDouble())
         val tip = Offset(c.x + (r * 0.85f * cos(rad)).toFloat(), c.y + (r * 0.85f * sin(rad)).toFloat())

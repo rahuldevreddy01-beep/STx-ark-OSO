@@ -170,6 +170,8 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("all_apps_5col_grid").assertIsDisplayed()
         composeTestRule.onNodeWithTag("left_dial_mode_fullscreen").performClick()
         assertEquals(AppLaunchMode.FULLSCREEN, selectedMode)
+        composeTestRule.onNodeWithTag("left_dial_mode_toggle").performClick()
+        assertEquals(AppLaunchMode.FULLSCREEN, selectedMode)
     }
 
     @Test
@@ -255,11 +257,11 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `viewmodel right dial apps list stays lightweight within 1 to 8 items`() {
+    fun `viewmodel right dial apps list stays lightweight within 1 to 6 items`() {
         val app = ApplicationProvider.getApplicationContext<Application>()
         val vm = StarkViewModel(app)
         val items = vm.currentHalfDialItems()
-        assertTrue(items.size in 1..8)
+        assertTrue(items.size in 1..6)
     }
 
     @Test

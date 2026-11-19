@@ -62,6 +62,7 @@ import com.example.model.DialWedgeItem
 import com.example.ui.theme.HudCrimson
 import com.example.ui.theme.HudCyan
 import com.example.ui.theme.HudCyanSoft
+import com.example.ui.theme.HudElectricBlue
 import com.example.ui.theme.HudIce
 import com.example.ui.theme.HudSilver
 import com.example.ui.theme.HudSlate
@@ -231,25 +232,37 @@ fun ArcReactorFullDial(
             val currentAngle = bearingAngle.value
             val tickOuter = radiusPx * 0.99f
             val tickInnerMinor = radiusPx * 0.955f
-            val tickInnerMajor = radiusPx * 0.93f
+            val tickInnerMajor = radiusPx * 0.925f
             val tickPhase = currentAngle * 0.25f
             for (t in 0 until 72) {
                 val a = Math.toRadians((t * 5.0) - 90.0 + tickPhase)
                 val major = t % 6 == 0
+                val crimsonTick = t % 12 == 0
                 val rIn = if (major) tickInnerMajor else tickInnerMinor
                 drawLine(
-                    color = if (major) HudCyan.copy(alpha = 0.72f) else HudCyan.copy(alpha = 0.25f),
+                    color = when {
+                        crimsonTick -> HudCrimson.copy(alpha = 0.88f)
+                        major -> HudCyan.copy(alpha = 0.78f)
+                        t % 2 == 0 -> HudElectricBlue.copy(alpha = 0.34f)
+                        else -> HudCrimson.copy(alpha = 0.22f)
+                    },
                     start = Offset(cx + (rIn * cos(a)).toFloat(), cy + (rIn * sin(a)).toFloat()),
                     end = Offset(cx + (tickOuter * cos(a)).toFloat(), cy + (tickOuter * sin(a)).toFloat()),
-                    strokeWidth = if (major) 2f else 1f
+                    strokeWidth = if (major) 2.2f else 1.1f
                 )
             }
 
             drawCircle(
-                color = HudCyan.copy(alpha = 0.26f),
-                radius = radiusPx * 0.92f,
+                color = HudElectricBlue.copy(alpha = 0.34f),
+                radius = radiusPx * 0.915f,
                 center = Offset(cx, cy),
-                style = Stroke(width = 1.dp.toPx())
+                style = Stroke(width = 1.2.dp.toPx())
+            )
+            drawCircle(
+                color = HudCrimson.copy(alpha = 0.26f),
+                radius = radiusPx * 0.895f,
+                center = Offset(cx, cy),
+                style = Stroke(width = 0.8.dp.toPx())
             )
 
             val gapDeg = if (count > 7) 3.4f else 4.2f
@@ -379,7 +392,9 @@ fun ArcReactorSideHalfDial(
     centerAccentCrimson: Boolean = false,
     centerButtonTestTag: String = "half_dial_center_back",
     showOuterTicks: Boolean = false,
-    showCoreSpinner: Boolean = false
+    showCoreSpinner: Boolean = false,
+    accentPrimary: Color = HudCyan,
+    accentSecondary: Color = HudCrimson
 ) {
     if (items.isEmpty()) return
     val haptic = LocalHapticFeedback.current
@@ -549,9 +564,10 @@ fun ArcReactorSideHalfDial(
                     val isCenter = abs(deg - baseAngle.toInt()) <= 10
                     drawLine(
                         color = when {
-                            isCenter -> HudCrimson.copy(alpha = 0.9f)
-                            major -> HudCyan.copy(alpha = 0.65f)
-                            else -> HudCyan.copy(alpha = 0.22f)
+                            isCenter -> accentSecondary.copy(alpha = 0.95f)
+                            major -> accentPrimary.copy(alpha = 0.72f)
+                            deg % 12 == 0 -> HudElectricBlue.copy(alpha = 0.36f)
+                            else -> accentSecondary.copy(alpha = 0.22f)
                         },
                         start = Offset(cx + (rIn * cos(rad)).toFloat(), cy + (rIn * sin(rad)).toFloat()),
                         end = Offset(cx + (rOut * cos(rad)).toFloat(), cy + (rOut * sin(rad)).toFloat()),
@@ -559,15 +575,24 @@ fun ArcReactorSideHalfDial(
                     )
                 }
             } else {
-                // Lightweight clean perimeter arc for ultra-smooth 60fps Apps cockpit
+                // Lightweight dual-tone red/blue perimeter arcs for ultra-smooth 60fps cockpit
                 drawArc(
-                    color = HudCyan.copy(alpha = 0.28f),
+                    color = accentPrimary.copy(alpha = 0.44f),
                     startAngle = baseAngle - 78f,
                     sweepAngle = 156f,
                     useCenter = false,
                     topLeft = Offset(cx - activeOuterR - 2.dp.toPx(), cy - activeOuterR - 2.dp.toPx()),
                     size = Size((activeOuterR + 2.dp.toPx()) * 2f, (activeOuterR + 2.dp.toPx()) * 2f),
-                    style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round)
+                    style = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round)
+                )
+                drawArc(
+                    color = accentSecondary.copy(alpha = 0.52f),
+                    startAngle = baseAngle - 32f,
+                    sweepAngle = 64f,
+                    useCenter = false,
+                    topLeft = Offset(cx - activeOuterR - 5.dp.toPx(), cy - activeOuterR - 5.dp.toPx()),
+                    size = Size((activeOuterR + 5.dp.toPx()) * 2f, (activeOuterR + 5.dp.toPx()) * 2f),
+                    style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round)
                 )
             }
 
@@ -595,15 +620,15 @@ fun ArcReactorSideHalfDial(
                 )
 
                 val fill = when {
-                    isFocused && item.isAccentCrimson -> HudCrimson.copy(alpha = 0.26f)
-                    isFocused -> HudCyan.copy(alpha = 0.24f)
-                    else -> Color(0x9906101B).copy(alpha = 0.6f * edgeFade)
+                    isFocused && item.isAccentCrimson -> HudCrimson.copy(alpha = 0.28f)
+                    isFocused -> accentPrimary.copy(alpha = 0.24f)
+                    else -> Color(0x99060D18).copy(alpha = 0.65f * edgeFade)
                 }
                 val stroke = when {
                     isFocused && item.isAccentCrimson -> HudCrimson
                     isFocused -> HudIce
-                    item.isAccentCrimson -> HudCrimson.copy(alpha = 0.52f * edgeFade)
-                    else -> HudCyan.copy(alpha = 0.34f * edgeFade)
+                    item.isAccentCrimson -> HudCrimson.copy(alpha = 0.56f * edgeFade)
+                    else -> accentPrimary.copy(alpha = 0.36f * edgeFade)
                 }
                 drawPath(path = reusablePath, color = fill)
                 drawPath(
@@ -613,17 +638,23 @@ fun ArcReactorSideHalfDial(
                 )
             }
 
-            // Static crisp inner reactor ring when spinner is disabled (zero animation overhead)
+            // Dual-tone inner reactor rings when spinner is disabled
             if (!showCoreSpinner) {
                 drawCircle(
-                    color = (if (centerAccentCrimson) HudCrimson else HudCyan).copy(alpha = 0.45f),
-                    radius = wedgeInnerR * 0.88f,
+                    color = accentPrimary.copy(alpha = 0.55f),
+                    radius = wedgeInnerR * 0.90f,
                     center = Offset(cx, cy),
-                    style = Stroke(width = 1.5.dp.toPx())
+                    style = Stroke(width = 1.6.dp.toPx())
+                )
+                drawCircle(
+                    color = accentSecondary.copy(alpha = 0.45f),
+                    radius = wedgeInnerR * 0.78f,
+                    center = Offset(cx, cy),
+                    style = Stroke(width = 1.dp.toPx())
                 )
             }
 
-            // Crimson focus pointer triangle
+            // High-contrast reticle pointer triangle
             reusablePath.reset()
             if (side == DialSide.LEFT) {
                 val pointerX = cx + activeOuterR + 3.dp.toPx()
@@ -637,7 +668,7 @@ fun ArcReactorSideHalfDial(
                 reusablePath.lineTo(pointerX - 4.dp.toPx(), cy + 5.dp.toPx())
             }
             reusablePath.close()
-            drawPath(reusablePath, color = HudCrimson)
+            drawPath(reusablePath, color = accentSecondary)
         }
 
         if (showCoreSpinner) {
@@ -701,7 +732,11 @@ fun ArcReactorSideHalfDial(
                     fontFamily = JetBrainsMonoFontFamily,
                     fontSize = 6.3.sp,
                     lineHeight = 8.sp,
-                    color = if (isFocused) HudCyan else HudSlate,
+                    color = when {
+                        isFocused && item.isAccentCrimson -> HudCrimson
+                        isFocused -> accentPrimary
+                        else -> HudSlate
+                    },
                     maxLines = 1,
                     softWrap = false
                 )
@@ -866,7 +901,7 @@ private fun ArcCoreSpinnerOverlay(modifier: Modifier = Modifier) {
             val sz = Size(coreR * 2f, coreR * 2f)
             for (seg in 0 until 3) {
                 drawArc(
-                    color = HudCyan.copy(alpha = 0.85f),
+                    color = if (seg == 1) HudCrimson.copy(alpha = 0.88f) else HudCyan.copy(alpha = 0.88f),
                     startAngle = seg * 120f,
                     sweepAngle = 78f,
                     useCenter = false,
@@ -887,7 +922,7 @@ private fun ArcCoreSpinnerOverlay(modifier: Modifier = Modifier) {
             val sz = Size(r2 * 2f, r2 * 2f)
             for (seg in 0 until 4) {
                 drawArc(
-                    color = if (seg == 0) HudCrimson.copy(alpha = 0.9f) else HudCyanSoft.copy(alpha = 0.6f),
+                    color = if (seg % 2 == 0) HudCrimson.copy(alpha = 0.92f) else HudElectricBlue.copy(alpha = 0.85f),
                     startAngle = seg * 90f,
                     sweepAngle = 55f,
                     useCenter = false,
@@ -898,10 +933,15 @@ private fun ArcCoreSpinnerOverlay(modifier: Modifier = Modifier) {
             }
             val r3 = size.minDimension * 0.27f
             drawCircle(
-                color = HudIce.copy(alpha = 0.72f),
+                color = HudIce.copy(alpha = 0.78f),
                 radius = r3,
                 center = c,
                 style = Stroke(width = 1.5.dp.toPx())
+            )
+            drawCircle(
+                color = HudCrimson.copy(alpha = 0.35f),
+                radius = r3 * 0.55f,
+                center = c
             )
         }
     }

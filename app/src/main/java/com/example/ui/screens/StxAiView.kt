@@ -73,6 +73,8 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.ui.StarkUiState
 import com.example.ui.components.HudBracketCard
+import com.example.ui.components.SciFiDualPulseBeam
+import com.example.ui.components.StxEntrancePanel
 import com.example.ui.theme.HudCrimson
 import com.example.ui.theme.HudCrimsonBorder
 import com.example.ui.theme.HudCrimsonSubtle
@@ -104,20 +106,25 @@ fun StxAiView(
     val listState = rememberLazyListState()
 
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
-    DisposableEffect(context) {
-        var engine: TextToSpeech? = null
-        runCatching {
-            engine = TextToSpeech(context.applicationContext) { status ->
-                if (status == TextToSpeech.SUCCESS) {
-                    runCatching { engine?.language = Locale.US }
-                }
-            }
-            tts = engine
-        }
-        onDispose {
-            runCatching { engine?.stop() }
-            runCatching { engine?.shutdown() }
+    DisposableEffect(speakReplies, context) {
+        if (!speakReplies) {
             tts = null
+            onDispose {}
+        } else {
+            var engine: TextToSpeech? = null
+            runCatching {
+                engine = TextToSpeech(context.applicationContext) { status ->
+                    if (status == TextToSpeech.SUCCESS) {
+                        runCatching { engine?.language = Locale.US }
+                    }
+                }
+                tts = engine
+            }
+            onDispose {
+                runCatching { engine?.stop() }
+                runCatching { engine?.shutdown() }
+                tts = null
+            }
         }
     }
 
@@ -145,68 +152,96 @@ fun StxAiView(
                 modifier = Modifier.fillMaxSize(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                StxHologramEmitterStage(
-                    isThinking = state.aiThinking || voiceListening,
-                    isListening = voiceListening,
+                StxEntrancePanel(
+                    visibleKey = "stx_holo_wide",
+                    slideFromX = -24f,
+                    slideFromY = 0f,
                     modifier = Modifier
                         .weight(0.38f)
                         .fillMaxHeight()
-                )
-                StxConversationDeck(
-                    state = state,
-                    inputText = inputText,
-                    onInputChange = { inputText = it },
-                    speakReplies = speakReplies,
-                    onToggleSpeak = { speakReplies = !speakReplies },
-                    voiceListening = voiceListening,
-                    voicePartial = voicePartial,
-                    onVoiceClick = onVoiceCommand,
-                    onSend = {
-                        val q = inputText
-                        inputText = ""
-                        onSendPrompt(q)
-                    },
-                    onQuickPrompt = onSendPrompt,
-                    onBack = onBack,
-                    listState = listState,
+                ) {
+                    StxHologramEmitterStage(
+                        isThinking = state.aiThinking || voiceListening,
+                        isListening = voiceListening,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                StxEntrancePanel(
+                    visibleKey = "stx_deck_wide",
+                    delayMs = 45,
+                    slideFromX = 24f,
+                    slideFromY = 0f,
                     modifier = Modifier
                         .weight(0.62f)
                         .fillMaxHeight()
-                )
+                ) {
+                    StxConversationDeck(
+                        state = state,
+                        inputText = inputText,
+                        onInputChange = { inputText = it },
+                        speakReplies = speakReplies,
+                        onToggleSpeak = { speakReplies = !speakReplies },
+                        voiceListening = voiceListening,
+                        voicePartial = voicePartial,
+                        onVoiceClick = onVoiceCommand,
+                        onSend = {
+                            val q = inputText
+                            inputText = ""
+                            onSendPrompt(q)
+                        },
+                        onQuickPrompt = onSendPrompt,
+                        onBack = onBack,
+                        listState = listState,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
         } else {
             Column(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                StxHologramEmitterStage(
-                    isThinking = state.aiThinking || voiceListening,
-                    isListening = voiceListening,
+                StxEntrancePanel(
+                    visibleKey = "stx_holo_port",
+                    slideFromY = -18f,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(158.dp)
-                )
-                StxConversationDeck(
-                    state = state,
-                    inputText = inputText,
-                    onInputChange = { inputText = it },
-                    speakReplies = speakReplies,
-                    onToggleSpeak = { speakReplies = !speakReplies },
-                    voiceListening = voiceListening,
-                    voicePartial = voicePartial,
-                    onVoiceClick = onVoiceCommand,
-                    onSend = {
-                        val q = inputText
-                        inputText = ""
-                        onSendPrompt(q)
-                    },
-                    onQuickPrompt = onSendPrompt,
-                    onBack = onBack,
-                    listState = listState,
+                ) {
+                    StxHologramEmitterStage(
+                        isThinking = state.aiThinking || voiceListening,
+                        isListening = voiceListening,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                StxEntrancePanel(
+                    visibleKey = "stx_deck_port",
+                    delayMs = 45,
+                    slideFromY = 22f,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                )
+                ) {
+                    StxConversationDeck(
+                        state = state,
+                        inputText = inputText,
+                        onInputChange = { inputText = it },
+                        speakReplies = speakReplies,
+                        onToggleSpeak = { speakReplies = !speakReplies },
+                        voiceListening = voiceListening,
+                        voicePartial = voicePartial,
+                        onVoiceClick = onVoiceCommand,
+                        onSend = {
+                            val q = inputText
+                            inputText = ""
+                            onSendPrompt(q)
+                        },
+                        onQuickPrompt = onSendPrompt,
+                        onBack = onBack,
+                        listState = listState,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
         }
     }
@@ -383,6 +418,13 @@ private fun StxConversationDeck(
                     }
                 }
             }
+
+            SciFiDualPulseBeam(
+                isAlertCrimson = voiceListening || state.aiThinking,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+            )
 
             Box(
                 modifier = Modifier

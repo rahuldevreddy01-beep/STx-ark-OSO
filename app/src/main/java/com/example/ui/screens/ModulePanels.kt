@@ -61,8 +61,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -381,9 +381,11 @@ fun CameraOpticalPanel(
                 if (hasCameraPerm) {
                     val previewView = remember { PreviewView(context) }
                     DisposableEffect(state.cameraFacingBack, lifecycleOwner) {
-                        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+                        val cameraProviderFuture = runCatching {
+                            ProcessCameraProvider.getInstance(context)
+                        }.getOrNull()
                         val executor = ContextCompat.getMainExecutor(context)
-                        cameraProviderFuture.addListener({
+                        cameraProviderFuture?.addListener({
                             runCatching {
                                 val provider = cameraProviderFuture.get()
                                 val preview = Preview.Builder().build().also {
@@ -400,7 +402,7 @@ fun CameraOpticalPanel(
                             }
                         }, executor)
                         onDispose {
-                            if (cameraProviderFuture.isDone) {
+                            if (cameraProviderFuture?.isDone == true) {
                                 runCatching { cameraProviderFuture.get().unbindAll() }
                             }
                         }
