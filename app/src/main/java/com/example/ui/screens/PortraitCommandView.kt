@@ -1,0 +1,685 @@
+package com.example.ui.screens
+
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.R
+import com.example.model.DialWedgeItem
+import com.example.model.HubModule
+import com.example.model.InstalledApp
+import com.example.ui.StarkUiState
+import com.example.ui.components.ArcReactorFullDial
+import com.example.ui.components.HudBracketCard
+import com.example.ui.theme.HudCrimson
+import com.example.ui.theme.HudCrimsonBorder
+import com.example.ui.theme.HudCrimsonSubtle
+import com.example.ui.theme.HudCyan
+import com.example.ui.theme.HudCyanBorder
+import com.example.ui.theme.HudCyanSubtle
+import com.example.ui.theme.HudEmerald
+import com.example.ui.theme.HudIce
+import com.example.ui.theme.HudSilver
+import com.example.ui.theme.HudSlate
+import com.example.ui.theme.JetBrainsMonoFontFamily
+import com.example.ui.theme.OrbitronFontFamily
+import com.example.ui.theme.RajdhaniFontFamily
+
+@Composable
+fun PortraitCommandView(
+    state: StarkUiState,
+    hubModules: List<HubModule>,
+    voiceListening: Boolean,
+    voicePartial: String,
+    onSelectHubIndex: (Int) -> Unit,
+    onOpenModule: (HubModule) -> Unit,
+    onLaunchAppFullscreen: (InstalledApp) -> Unit,
+    onAskStxAi: (String) -> Unit,
+    onVoiceCommand: () -> Unit,
+    onToggleWifi: () -> Unit,
+    onToggleBluetooth: () -> Unit,
+    onToggleFlash: () -> Unit,
+    onToggleLock: () -> Unit,
+    onSync: () -> Unit,
+    onToggleMute: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var commandText by remember { mutableStateOf("") }
+    val dialItems = remember(hubModules) {
+        hubModules.map { m ->
+            DialWedgeItem(
+                id = m.id,
+                badge = m.code,
+                label = m.title,
+                isAccentCrimson = m == HubModule.STX_AI
+            )
+        }
+    }
+    val pinnedApps = remember(state.installedApps) {
+        state.installedApps.filter { it.isPinnedToDock }.take(4)
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // Top Micro-Telemetry Status Bar
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = state.clock.timeText,
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = HudIce,
+                    maxLines = 1
+                )
+                Text(
+                    text = "${state.clock.dateText} · ${state.telemetry.networkTransport}",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 9.sp,
+                    color = HudSlate,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = if (state.telemetry.isCharging) "${state.telemetry.batteryPercent}%⚡" else "${state.telemetry.batteryPercent}%",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    color = if (state.telemetry.isCharging) HudEmerald else HudCyan,
+                    maxLines = 1
+                )
+                Box(
+                    modifier = Modifier
+                        .heightIn(min = 34.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (voiceListening) HudCrimsonSubtle else HudCyanSubtle)
+                        .border(1.dp, if (voiceListening) HudCrimson else HudCyan, RoundedCornerShape(4.dp))
+                        .clickable { onOpenModule(HubModule.STX_AI) }
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                        .testTag("portrait_stx_badge"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (voiceListening) "LISTENING…" else "STX AI",
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 9.5.sp,
+                        color = HudIce,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+
+        // Upper Hero: Smooth Bearing Arc Reactor Wheel + Battery Charging & RAM Micro-Gauges
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(200.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            CircularMicroGauge(
+                value = "${state.telemetry.batteryPercent}%",
+                label = if (state.telemetry.isCharging) "CHG⚡" else "PWR",
+                fraction = state.telemetry.batteryPercent / 100f,
+                ringColor = if (state.telemetry.isCharging) HudEmerald else HudCyan,
+                isCharging = state.telemetry.isCharging,
+                modifier = Modifier.size(56.dp)
+            )
+
+            ArcReactorFullDial(
+                items = dialItems,
+                selectedIndex = state.hubSelectedIndex,
+                onSelectIndex = onSelectHubIndex,
+                onActivateIndex = { idx ->
+                    onOpenModule(hubModules.getOrElse(idx) { HubModule.APPS })
+                },
+                compactMode = true,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxSize()
+                    .padding(horizontal = 4.dp)
+            )
+
+            CircularMicroGauge(
+                value = "${state.telemetry.ramUsedPercent}%",
+                label = "MEM",
+                fraction = state.telemetry.ramUsedPercent / 100f,
+                ringColor = HudCrimson,
+                isCharging = false,
+                modifier = Modifier.size(56.dp)
+            )
+        }
+
+        // Sub-bar: Battery Temp, Heading, Real Step Counter
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color(0x88060D16))
+                .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "${"%.1f".format(state.telemetry.batteryTempC)}°C",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp,
+                color = HudIce,
+                maxLines = 1
+            )
+            Text(
+                text = "HDG ${state.telemetry.cardinalDirection} ${state.telemetry.azimuthDeg}°",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 9.5.sp,
+                color = HudCyan,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "STEPS ${state.telemetry.stepsCount}",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp,
+                color = HudCrimson,
+                maxLines = 1
+            )
+        }
+
+        // Middle Command & Briefing Deck
+        HudBracketCard(contentPadding = 10.dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "${state.clock.greeting}, ${state.preferences.operatorCallsign}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = HudIce,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (voiceListening && voicePartial.isNotBlank()) {
+                        "MIC // $voicePartial"
+                    } else {
+                        "${state.installedApps.size} APPS · ${state.telemetry.wifiSsid} · ${state.telemetry.ramUsedMb}/${state.telemetry.ramTotalMb}MB"
+                    },
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 9.sp,
+                    color = if (voiceListening) HudCrimson else HudCyan,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                // Interactive ASK STX AI Input Pill
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(Color(0xFF040A12))
+                        .border(1.dp, if (voiceListening) HudCrimson else HudCyanBorder, RoundedCornerShape(22.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (commandText.isEmpty()) {
+                            Text(
+                                text = if (voiceListening) "LISTENING…" else stringResource(R.string.ask_stx_ai_hint),
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 10.sp,
+                                color = if (voiceListening) HudCrimson else HudSlate,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        BasicTextField(
+                            value = commandText,
+                            onValueChange = { commandText = it },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = {
+                                val q = commandText
+                                commandText = ""
+                                onAskStxAi(q.ifBlank { "system brief" })
+                            }),
+                            textStyle = TextStyle(
+                                fontFamily = RajdhaniFontFamily,
+                                fontSize = 13.sp,
+                                color = HudIce
+                            ),
+                            cursorBrush = SolidColor(HudCyan),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("portrait_ask_input")
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(if (voiceListening) HudCrimson.copy(alpha = 0.35f) else HudCrimsonSubtle)
+                            .border(1.dp, if (voiceListening) HudIce else HudCrimsonBorder, CircleShape)
+                            .clickable(onClick = onVoiceCommand)
+                            .testTag("portrait_voice_btn"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = stringResource(R.string.cd_voice_command),
+                            tint = if (voiceListening) HudIce else HudCrimson,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(HudCyanSubtle)
+                            .border(1.dp, HudCyan, CircleShape)
+                            .clickable {
+                                val q = commandText
+                                commandText = ""
+                                onAskStxAi(q.ifBlank { "system brief" })
+                            }
+                            .testTag("portrait_send_btn"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Submit STX AI command",
+                            tint = HudCyan,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                }
+
+                // Segmented real telemetry bars
+                TelemetryBarGauge(
+                    label = "BATTERY · ${state.telemetry.chargingSource}",
+                    valueText = if (state.telemetry.isCharging) "${state.telemetry.batteryPercent}% ⚡" else "${state.telemetry.batteryPercent}%",
+                    fraction = state.telemetry.batteryPercent / 100f,
+                    fillColor = if (state.telemetry.isCharging) HudEmerald else HudCyan,
+                    isChargingPulse = state.telemetry.isCharging
+                )
+                TelemetryBarGauge(
+                    label = "STORAGE · ${"%.1f".format(state.telemetry.storageFreeGb)} GB FREE",
+                    valueText = "${state.telemetry.storageUsedPercent}%",
+                    fraction = state.telemetry.storageUsedPercent / 100f,
+                    fillColor = HudCrimson
+                )
+            }
+        }
+
+        // 6 Real Quick Hardware Toggles (2 compact rows of 3)
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                QuickHardwareToggle(
+                    label = "WIFI",
+                    icon = Icons.Default.Wifi,
+                    active = state.telemetry.wifiConnected || state.telemetry.wifiEnabled,
+                    crimsonWhenActive = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = onToggleWifi
+                )
+                QuickHardwareToggle(
+                    label = "BT",
+                    icon = Icons.Default.Bluetooth,
+                    active = state.telemetry.bluetoothEnabled,
+                    crimsonWhenActive = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = onToggleBluetooth
+                )
+                QuickHardwareToggle(
+                    label = "FLASH",
+                    icon = Icons.Default.FlashlightOn,
+                    active = state.telemetry.flashlightOn,
+                    crimsonWhenActive = true,
+                    modifier = Modifier.weight(1f),
+                    onClick = onToggleFlash
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                QuickHardwareToggle(
+                    label = "LOCK",
+                    icon = Icons.Default.Lock,
+                    active = state.telemetry.touchLocked,
+                    crimsonWhenActive = true,
+                    modifier = Modifier.weight(1f),
+                    onClick = onToggleLock
+                )
+                QuickHardwareToggle(
+                    label = "SYNC",
+                    icon = Icons.Default.Sync,
+                    active = true,
+                    crimsonWhenActive = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = onSync
+                )
+                QuickHardwareToggle(
+                    label = "MUTE",
+                    icon = Icons.Default.VolumeOff,
+                    active = state.telemetry.audioMuted,
+                    crimsonWhenActive = true,
+                    modifier = Modifier.weight(1f),
+                    onClick = onToggleMute
+                )
+            }
+        }
+
+        // Bottom Inverted Arc Quick-Launch Dock
+        HudBracketCard(
+            borderColor = HudCyanBorder,
+            contentPadding = 8.dp
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (pinnedApps.isNotEmpty()) {
+                        pinnedApps.forEach { app ->
+                            PinnedDockAppButton(
+                                app = app,
+                                onClick = { onLaunchAppFullscreen(app) }
+                            )
+                        }
+                        ArcDockModuleButton(
+                            label = "APPS",
+                            icon = Icons.Default.Apps,
+                            onClick = { onOpenModule(HubModule.APPS) }
+                        )
+                    } else {
+                        ArcDockModuleButton(
+                            label = "APPS",
+                            icon = Icons.Default.Apps,
+                            onClick = { onOpenModule(HubModule.APPS) }
+                        )
+                        ArcDockModuleButton(
+                            label = "SEARCH",
+                            icon = Icons.Default.Search,
+                            onClick = { onOpenModule(HubModule.SEARCH) }
+                        )
+                        ArcDockModuleButton(
+                            label = "VAULT",
+                            icon = Icons.Default.Security,
+                            onClick = { onOpenModule(HubModule.VAULT) }
+                        )
+                        ArcDockModuleButton(
+                            label = "CAMERA",
+                            icon = Icons.Default.CameraAlt,
+                            onClick = { onOpenModule(HubModule.CAMERA) }
+                        )
+                        ArcDockModuleButton(
+                            label = "SETTINGS",
+                            icon = Icons.Default.Settings,
+                            onClick = { onOpenModule(HubModule.SETTINGS) }
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(HudCrimson)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(2.dp))
+    }
+}
+
+@Composable
+private fun CircularMicroGauge(
+    value: String,
+    label: String,
+    fraction: Float,
+    ringColor: Color,
+    isCharging: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val chargeSweepAngle = if (isCharging) {
+        val infinite = rememberInfiniteTransition(label = "gauge_charge")
+        val sweep by infinite.animateFloat(
+            initialValue = -90f,
+            targetValue = 270f,
+            animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart),
+            label = "gauge_charge_orbit"
+        )
+        sweep
+    } else {
+        null
+    }
+
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val stroke = 3.5.dp.toPx()
+            drawArc(
+                color = Color(0xFF102030),
+                startAngle = 0f,
+                sweepAngle = 360f,
+                useCenter = false,
+                style = Stroke(width = stroke)
+            )
+            drawArc(
+                color = ringColor,
+                startAngle = -90f,
+                sweepAngle = 360f * fraction.coerceIn(0.05f, 1f),
+                useCenter = false,
+                style = Stroke(width = stroke, cap = StrokeCap.Round)
+            )
+            if (chargeSweepAngle != null) {
+                drawArc(
+                    color = HudIce.copy(alpha = 0.9f),
+                    startAngle = chargeSweepAngle,
+                    sweepAngle = 42f,
+                    useCenter = false,
+                    style = Stroke(width = stroke + 1.dp.toPx(), cap = StrokeCap.Round)
+                )
+            }
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = value,
+                fontFamily = JetBrainsMonoFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp,
+                color = HudIce,
+                maxLines = 1
+            )
+            Text(
+                text = label,
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 7.5.sp,
+                color = if (isCharging) HudEmerald else HudSlate,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun ArcDockModuleButton(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 5.dp, vertical = 3.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(HudCyanSubtle)
+                .border(1.dp, HudCyanBorder, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = HudCyan,
+                modifier = Modifier.size(15.dp)
+            )
+        }
+        Text(
+            text = label,
+            fontFamily = JetBrainsMonoFontFamily,
+            fontSize = 8.5.sp,
+            color = HudSilver,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun PinnedDockAppButton(
+    app: InstalledApp,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 5.dp, vertical = 3.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF0A1624))
+                .border(1.dp, HudCyan, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            if (app.icon != null) {
+                Image(
+                    bitmap = app.icon,
+                    contentDescription = app.label,
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                )
+            } else {
+                Text(
+                    text = app.label.take(2).uppercase(),
+                    fontFamily = OrbitronFontFamily,
+                    fontSize = 9.sp,
+                    color = HudCyan
+                )
+            }
+        }
+        Text(
+            text = app.label.uppercase().take(7),
+            fontFamily = JetBrainsMonoFontFamily,
+            fontSize = 8.5.sp,
+            color = HudIce,
+            maxLines = 1,
+            softWrap = false
+        )
+    }
+}

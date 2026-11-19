@@ -1,0 +1,176 @@
+package com.example.ui.components
+
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import com.example.ui.theme.HudCrimson
+import com.example.ui.theme.HudCyan
+import com.example.ui.theme.HudCyanBorder
+import com.example.ui.theme.ObsidianGlass
+import com.example.ui.theme.ObsidianVoid
+
+@Composable
+fun StarkObsidianBackground(modifier: Modifier = Modifier) {
+    Canvas(
+        modifier = modifier
+            .fillMaxSize()
+            .background(ObsidianVoid)
+    ) {
+        // Subtle radial deep atmospheric HUD glow (no blocky square grids)
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color(0xFF071624),
+                    Color(0xFF030810),
+                    ObsidianVoid
+                ),
+                center = Offset(size.width * 0.5f, size.height * 0.44f),
+                radius = size.maxDimension * 0.72f
+            )
+        )
+
+        // Subtle optical scanlines (very faint, 6dp step, zero flicker)
+        val stepPx = 6.dp.toPx()
+        var y = 0f
+        while (y < size.height) {
+            drawLine(
+                color = Color(0x0900F0FF),
+                start = Offset(0f, y),
+                end = Offset(size.width, y),
+                strokeWidth = 1f
+            )
+            y += stepPx
+        }
+    }
+}
+
+/**
+ * Covers ALL 4 outer screen edges (top, bottom, left, right) cleanly over the entire window.
+ */
+@Composable
+fun EdgeFlashOverlay(
+    active: Boolean,
+    crimsonMode: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val alpha by animateFloatAsState(
+        targetValue = if (active) 1f else 0f,
+        animationSpec = tween(durationMillis = 220),
+        label = "edge_flash_alpha"
+    )
+    if (alpha <= 0.01f) return
+
+    val coreColor = if (crimsonMode) HudCrimson else Color(0xFFE6FCFF)
+    val glowColor = if (crimsonMode) Color(0xCCFF2A4B) else HudCyan
+
+    Canvas(modifier = modifier.fillMaxSize()) {
+        val edgeDepth = 42.dp.toPx()
+        val strokeW = 4.dp.toPx()
+
+        // Top edge glow
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(glowColor.copy(alpha = 0.65f * alpha), Color.Transparent),
+                startY = 0f,
+                endY = edgeDepth
+            ),
+            size = androidx.compose.ui.geometry.Size(size.width, edgeDepth)
+        )
+        // Bottom edge glow
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(Color.Transparent, glowColor.copy(alpha = 0.65f * alpha)),
+                startY = size.height - edgeDepth,
+                endY = size.height
+            ),
+            topLeft = Offset(0f, size.height - edgeDepth),
+            size = androidx.compose.ui.geometry.Size(size.width, edgeDepth)
+        )
+        // Left edge glow
+        drawRect(
+            brush = Brush.horizontalGradient(
+                colors = listOf(glowColor.copy(alpha = 0.65f * alpha), Color.Transparent),
+                startX = 0f,
+                endX = edgeDepth
+            ),
+            size = androidx.compose.ui.geometry.Size(edgeDepth, size.height)
+        )
+        // Right edge glow
+        drawRect(
+            brush = Brush.horizontalGradient(
+                colors = listOf(Color.Transparent, glowColor.copy(alpha = 0.65f * alpha)),
+                startX = size.width - edgeDepth,
+                endX = size.width
+            ),
+            topLeft = Offset(size.width - edgeDepth, 0f),
+            size = androidx.compose.ui.geometry.Size(edgeDepth, size.height)
+        )
+
+        // Crisp luminous inner perimeter border around all 4 edges
+        drawRect(
+            color = coreColor.copy(alpha = 0.9f * alpha),
+            topLeft = Offset(strokeW / 2f, strokeW / 2f),
+            size = androidx.compose.ui.geometry.Size(size.width - strokeW, size.height - strokeW),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeW)
+        )
+    }
+}
+
+@Composable
+fun HudBracketCard(
+    modifier: Modifier = Modifier,
+    borderColor: Color = HudCyanBorder,
+    accentCornerColor: Color = HudCyan,
+    bottomLeftAccent: Color = HudCrimson,
+    contentPadding: Dp = 14.dp,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val shape = RoundedCornerShape(4.dp)
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(ObsidianGlass)
+            .border(1.dp, borderColor, shape)
+    ) {
+        // Signature Stark HUD corner brackets
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val len = 12.dp.toPx()
+            val stroke = 2.dp.toPx()
+            // Top-left
+            drawLine(accentCornerColor, Offset(0f, stroke / 2), Offset(len, stroke / 2), stroke, StrokeCap.Square)
+            drawLine(accentCornerColor, Offset(stroke / 2, 0f), Offset(stroke / 2, len), stroke, StrokeCap.Square)
+            // Top-right
+            drawLine(accentCornerColor, Offset(size.width - len, stroke / 2), Offset(size.width, stroke / 2), stroke, StrokeCap.Square)
+            drawLine(accentCornerColor, Offset(size.width - stroke / 2, 0f), Offset(size.width - stroke / 2, len), stroke, StrokeCap.Square)
+            // Bottom-left
+            drawLine(bottomLeftAccent, Offset(0f, size.height - stroke / 2), Offset(len, size.height - stroke / 2), stroke, StrokeCap.Square)
+            drawLine(bottomLeftAccent, Offset(stroke / 2, size.height - len), Offset(stroke / 2, size.height), stroke, StrokeCap.Square)
+            // Bottom-right
+            drawLine(accentCornerColor, Offset(size.width - len, size.height - stroke / 2), Offset(size.width, size.height - stroke / 2), stroke, StrokeCap.Square)
+            drawLine(accentCornerColor, Offset(size.width - stroke / 2, size.height - len), Offset(size.width - stroke / 2, size.height), stroke, StrokeCap.Square)
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(contentPadding),
+            content = content
+        )
+    }
+}
