@@ -41,7 +41,8 @@ enum class SettingsSection(
     DISPLAY("03", "DISPLAY & HUD", "IMMERSIVE & GLOW"),
     PERMISSIONS("04", "PERMISSIONS", "HARDWARE ACCESS"),
     DIAGNOSTICS("05", "DIAGNOSTICS", "DEVICE & STORAGE"),
-    LOCKSCREEN("06", "LOCKSCREEN", "PASSCODE & WAKE")
+    LOCKSCREEN("06", "LOCKSCREEN", "PASSCODE & WAKE"),
+    ORB_STUDIO("07", "ORB STUDIO", "3D HTML ORB & FX")
 }
 
 data class DialWedgeItem(
@@ -154,7 +155,16 @@ data class LauncherPreferences(
     val lockHeadline: String = "STX OS // SECURE DECK",
     val systemFloatingAiEnabled: Boolean = false,
     val appLaunchCounts: Map<String, Int> = emptyMap(),
-    val appLastUsedMs: Map<String, Long> = emptyMap()
+    val appLastUsedMs: Map<String, Long> = emptyMap(),
+    val permissionsOnboarded: Boolean = false,
+    val orbUseHtmlWebGl: Boolean = true,
+    val orbRotationSpeed: Float = 1.0f,
+    val orbBloomStrength: Float = 1.1f,
+    val orbScale: Float = 1.0f,
+    val orbAutoRotate: Boolean = true,
+    val orbShowTextNodes: Boolean = true,
+    val orbShowDebris: Boolean = true,
+    val orbSpeechGlowReactive: Boolean = true
 ) {
     val hasPasscode: Boolean get() = passcodeHash.isNotBlank() && passcodeSalt.isNotBlank()
 }

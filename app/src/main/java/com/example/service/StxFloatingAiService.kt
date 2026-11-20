@@ -43,6 +43,7 @@ import com.example.data.FirebaseAiStxRepository
 import com.example.data.LauncherAppsRepository
 import com.example.data.LocalStxCommandRouter
 import com.example.data.StxAction
+import com.example.hardware.MiuiFreeformLauncher
 import com.example.model.DeviceTelemetry
 import com.example.model.HubModule
 import com.example.ui.components.HologramBitmapProcessor
@@ -553,11 +554,21 @@ class StxFloatingAiService : Service() {
         when (action) {
             StxAction.ToggleFlashlight -> toggleSystemTorch()
             StxAction.OpenWifi -> runCatching {
-                startActivity(Intent(Settings.ACTION_WIFI_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                MiuiFreeformLauncher.startFloatingActivity(
+                    context = this,
+                    intent = Intent(Settings.ACTION_WIFI_SETTINGS),
+                    targetPackage = "com.android.settings",
+                    allowMultipleTask = false
+                )
                 setExpandedState(false)
             }
             StxAction.OpenBluetooth -> runCatching {
-                startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                MiuiFreeformLauncher.startFloatingActivity(
+                    context = this,
+                    intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS),
+                    targetPackage = "com.android.settings",
+                    allowMultipleTask = false
+                )
                 setExpandedState(false)
             }
             is StxAction.LaunchApp -> {

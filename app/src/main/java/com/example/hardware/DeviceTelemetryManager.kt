@@ -29,10 +29,13 @@ import android.os.SystemClock
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import com.example.model.DeviceTelemetry
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -59,8 +62,19 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
 
     private var torchCameraId: String? = null
     private var lastSensorUiPushMs = 0L
+    private var lastStorageProbeMs = 0L
+    private var cachedStorageFreeGb = 0f
+    private var cachedStorageTotalGb = 1f
+    private var cachedStorageUsedPct = 0
     private val gyroHistoryBuffer = ArrayDeque<Float>(40)
     private var receiverRegistered = false
+    private var sensorsRegistered = false
+
+    @Volatile
+    private var isInteractiveForeground = true
+
+    @Volatile
+    private var highRateSensorsNeeded = false
 
     private val rotationMatrix = FloatArray(9)
     private var stepBaseline: Float? = null
@@ -101,9 +115,10 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
             }
         }
 
-        registerSensors()
+        if (isInteractiveForeground) {
+            registerSensors()
+        }
         runCatching { cameraManager?.registerTorchCallback(torchCallback, Handler(Looper.getMainLooper())) }
-        refreshSystemSnapshot()
     }
 
     fun stopMonitoring() {
@@ -111,25 +126,63 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
             runCatching { context.unregisterReceiver(batteryReceiver) }
             receiverRegistered = false
         }
-        runCatching { sensorManager?.unregisterListener(this) }
+        unregisterSensors()
         runCatching { cameraManager?.unregisterTorchCallback(torchCallback) }
+    }
+
+    fun setSensorActivityState(foreground: Boolean, highRateNeeded: Boolean) {
+        val fgChanged = isInteractiveForeground != foreground
+        val rateChanged = highRateSensorsNeeded != highRateNeeded
+        isInteractiveForeground = foreground
+        highRateSensorsNeeded = highRateNeeded
+        if (!foreground) {
+            if (sensorsRegistered) unregisterSensors()
+        } else if (fgChanged || rateChanged || !sensorsRegistered) {
+            registerSensors()
+        }
+    }
+
+    private fun unregisterSensors() {
+        if (!sensorsRegistered) return
+        runCatching { sensorManager?.unregisterListener(this) }
+        sensorsRegistered = false
+    }
+
+    fun refreshCameraCapabilities() {
+        detectTorchCamera()
     }
 
     fun registerSensors() {
         val sm = sensorManager ?: return
         runCatching { sm.unregisterListener(this) }
+        sensorsRegistered = false
 
-        val stepSensor = runCatching { sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) }.getOrNull()
+        val canReadSteps = LauncherPermissionManager.hasActivityRecognitionPermission(context)
+        val stepSensor = if (canReadSteps) {
+            runCatching { sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) }.getOrNull()
+        } else {
+            runCatching { sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) }.getOrNull()
+        }
         val gyroSensor = runCatching { sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE) }.getOrNull()
         val accelSensor = runCatching { sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) }.getOrNull()
         val rotSensor = runCatching { sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR) }.getOrNull()
         val lightSensor = runCatching { sm.getDefaultSensor(Sensor.TYPE_LIGHT) }.getOrNull()
 
-        stepSensor?.let { runCatching { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) } }
-        gyroSensor?.let { runCatching { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) } }
-        accelSensor?.let { runCatching { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) } }
-        rotSensor?.let { runCatching { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) } }
-        lightSensor?.let { runCatching { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) } }
+        val delayRate = if (highRateSensorsNeeded) {
+            SensorManager.SENSOR_DELAY_UI
+        } else {
+            SensorManager.SENSOR_DELAY_NORMAL
+        }
+        if (canReadSteps && stepSensor != null) {
+            runCatching { sm.registerListener(this, stepSensor, SensorManager.SENSOR_DELAY_NORMAL) }
+        }
+        rotSensor?.let { runCatching { sm.registerListener(this, it, delayRate) } }
+        if (highRateSensorsNeeded) {
+            gyroSensor?.let { runCatching { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) } }
+            accelSensor?.let { runCatching { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) } }
+            lightSensor?.let { runCatching { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL) } }
+        }
+        sensorsRegistered = true
 
         _telemetry.update {
             it.copy(
@@ -137,6 +190,10 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
                 lightSensorAvailable = lightSensor != null
             )
         }
+    }
+
+    suspend fun refreshSystemSnapshotAsync() = withContext(Dispatchers.IO) {
+        refreshSystemSnapshot()
     }
 
     fun refreshSystemSnapshot() {
@@ -147,13 +204,17 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
         val usedMb = (totalMb - availMb).coerceAtLeast(0L)
         val ramPercent = ((usedMb * 100f) / totalMb).roundToInt().coerceIn(0, 100)
 
-        val statFs = runCatching { StatFs(Environment.getDataDirectory().path) }.getOrNull()
-        val totalBytes = statFs?.totalBytes ?: 1L
-        val freeBytes = statFs?.availableBytes ?: 0L
-        val totalGb = totalBytes / (1024f * 1024f * 1024f)
-        val freeGb = freeBytes / (1024f * 1024f * 1024f)
-        val storageUsedPct = (((totalBytes - freeBytes) * 100f) / totalBytes.coerceAtLeast(1L))
-            .roundToInt().coerceIn(0, 100)
+        val nowMs = SystemClock.elapsedRealtime()
+        if (nowMs - lastStorageProbeMs >= 5000L || cachedStorageTotalGb <= 1f) {
+            lastStorageProbeMs = nowMs
+            val statFs = runCatching { StatFs(Environment.getDataDirectory().path) }.getOrNull()
+            val totalBytes = statFs?.totalBytes ?: 1L
+            val freeBytes = statFs?.availableBytes ?: 0L
+            cachedStorageTotalGb = totalBytes / (1024f * 1024f * 1024f)
+            cachedStorageFreeGb = freeBytes / (1024f * 1024f * 1024f)
+            cachedStorageUsedPct = (((totalBytes - freeBytes) * 100f) / totalBytes.coerceAtLeast(1L))
+                .roundToInt().coerceIn(0, 100)
+        }
 
         val uptimeSec = SystemClock.elapsedRealtime() / 1000L
         val hours = uptimeSec / 3600L
@@ -176,9 +237,9 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
                 ramUsedPercent = ramPercent,
                 ramUsedMb = usedMb,
                 ramTotalMb = totalMb,
-                storageFreeGb = freeGb,
-                storageTotalGb = totalGb,
-                storageUsedPercent = storageUsedPct,
+                storageFreeGb = cachedStorageFreeGb,
+                storageTotalGb = cachedStorageTotalGb,
+                storageUsedPercent = cachedStorageUsedPct,
                 uptimeFormatted = uptimeStr,
                 uptimeSeconds = uptimeSec,
                 wifiEnabled = netSnapshot.wifiEnabled,
@@ -217,37 +278,45 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
     }
 
     fun toggleWifiPanel() {
-        runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val intent = Intent(Settings.Panel.ACTION_WIFI).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-            } else {
-                @Suppress("DEPRECATION")
-                wifiManager?.isWifiEnabled = !(wifiManager?.isWifiEnabled ?: false)
-                refreshSystemSnapshot()
-            }
-        }.onFailure {
+        // On Xiaomi MIUI/HyperOS, Settings.Panel.ACTION_WIFI opens a fullscreen/sheet dialog that
+        // ignores freeform, whereas Settings.ACTION_WIFI_SETTINGS opens cleanly in a MIUI floating window.
+        val action = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !MiuiFreeformLauncher.isXiaomiOrHyperOs()) {
+            Settings.Panel.ACTION_WIFI
+        } else {
+            Settings.ACTION_WIFI_SETTINGS
+        }
+        val launched = runCatching {
+            MiuiFreeformLauncher.startFloatingActivity(
+                context = context,
+                intent = Intent(action),
+                targetPackage = "com.android.settings",
+                allowMultipleTask = false
+            )
+        }.getOrDefault(false)
+        if (!launched) {
             openWifiSettings()
         }
     }
 
     fun openWifiSettings() {
         runCatching {
-            val intent = Intent(Settings.ACTION_WIFI_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
+            MiuiFreeformLauncher.startFloatingActivity(
+                context = context,
+                intent = Intent(Settings.ACTION_WIFI_SETTINGS),
+                targetPackage = "com.android.settings",
+                allowMultipleTask = false
+            )
         }
     }
 
     fun toggleBluetoothPanel() {
         runCatching {
-            val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
+            MiuiFreeformLauncher.startFloatingActivity(
+                context = context,
+                intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS),
+                targetPackage = "com.android.settings",
+                allowMultipleTask = false
+            )
         }
     }
 
@@ -364,12 +433,18 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
         roll: Int? = null,
         lux: Float? = null
     ) {
+        if (!isInteractiveForeground) return
+        val minIntervalMs = if (highRateSensorsNeeded) 160L else 450L
         val now = SystemClock.elapsedRealtime()
-        if (now - lastSensorUiPushMs < 90L && gx == null && azimuth == null) return
-        if (now - lastSensorUiPushMs < 75L) return
+        if (now - lastSensorUiPushMs < minIntervalMs) return
+
+        val curSnap = _telemetry.value
+        if (!highRateSensorsNeeded && azimuth != null && abs(azimuth - curSnap.azimuthDeg) < 2) {
+            return
+        }
         lastSensorUiPushMs = now
 
-        val historySnapshot = if (gx != null) {
+        val historySnapshot = if (gx != null && highRateSensorsNeeded) {
             synchronized(gyroHistoryBuffer) { gyroHistoryBuffer.toList() }
         } else {
             null
@@ -483,11 +558,13 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
             ?.firstOrNull { it is java.net.Inet4Address }
             ?.hostAddress ?: "--"
 
+        val hasLocation = LauncherPermissionManager.hasAnyLocationPermission(context)
         @Suppress("DEPRECATION")
-        val wifiInfo = runCatching { wifiManager?.connectionInfo }.getOrNull()
-        val rawSsid = wifiInfo?.ssid?.replace("\"", "").orEmpty()
+        val wifiInfo = if (hasWifi) runCatching { wifiManager?.connectionInfo }.getOrNull() else null
+        val rawSsid = if (hasLocation) wifiInfo?.ssid?.replace("\"", "").orEmpty() else ""
         val ssid = when {
             !hasWifi -> if (hasCell) "MOBILE DATA" else "NO LINK"
+            !hasLocation -> "WIFI (GRANT LOC)"
             rawSsid.isBlank() || rawSsid == "<unknown ssid>" -> "WIFI CONNECTED"
             else -> rawSsid
         }
@@ -524,17 +601,17 @@ class DeviceTelemetryManager(private val context: Context) : SensorEventListener
     }
 
     private fun readBluetoothSnapshot(): Triple<Boolean, Int, String> {
-        val bm = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
-        val adapter: BluetoothAdapter? = bm?.adapter
+        val bm = runCatching {
+            context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+        }.getOrNull()
+        val adapter: BluetoothAdapter? = runCatching { bm?.adapter }.getOrNull()
         if (adapter == null) return Triple(false, 0, "NO HW")
+        val hasPerm = LauncherPermissionManager.hasBluetoothPermission(context)
         val enabled = runCatching { adapter.isEnabled }.getOrDefault(false)
+        if (!hasPerm) {
+            return Triple(enabled, 0, if (enabled) "ON (GRANT BT)" else "PERM REQ")
+        }
         if (!enabled) return Triple(false, 0, "OFF")
-        val hasPerm = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.BLUETOOTH_CONNECT
-            ) == PackageManager.PERMISSION_GRANTED
-        if (!hasPerm) return Triple(true, 0, "ON (PERM)")
         val paired = runCatching { adapter.bondedDevices?.size ?: 0 }.getOrDefault(0)
         return Triple(true, paired, if (paired > 0) "ON · $paired PAIRED" else "ON · READY")
     }

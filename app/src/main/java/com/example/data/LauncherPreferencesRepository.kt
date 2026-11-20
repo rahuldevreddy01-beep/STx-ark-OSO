@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -55,6 +56,15 @@ class LauncherPreferencesRepository(private val context: Context) {
         val LOCK_HEADLINE = stringPreferencesKey("lock_headline")
         val SYSTEM_FLOATING_AI = booleanPreferencesKey("system_floating_ai")
         val APP_USAGE_JSON = stringPreferencesKey("app_usage_json")
+        val PERMISSIONS_ONBOARDED = booleanPreferencesKey("permissions_onboarded")
+        val ORB_USE_HTML_WEBGL = booleanPreferencesKey("orb_use_html_webgl")
+        val ORB_ROTATION_SPEED = floatPreferencesKey("orb_rotation_speed")
+        val ORB_BLOOM_STRENGTH = floatPreferencesKey("orb_bloom_strength")
+        val ORB_SCALE = floatPreferencesKey("orb_scale")
+        val ORB_AUTO_ROTATE = booleanPreferencesKey("orb_auto_rotate")
+        val ORB_SHOW_TEXT_NODES = booleanPreferencesKey("orb_show_text_nodes")
+        val ORB_SHOW_DEBRIS = booleanPreferencesKey("orb_show_debris")
+        val ORB_SPEECH_GLOW_REACTIVE = booleanPreferencesKey("orb_speech_glow_reactive")
     }
 
     val preferencesFlow: Flow<LauncherPreferences> = context.stxDataStore.data
@@ -99,7 +109,16 @@ class LauncherPreferencesRepository(private val context: Context) {
             lockHeadline = storedHeadline,
             systemFloatingAiEnabled = prefs[Keys.SYSTEM_FLOATING_AI] ?: false,
             appLaunchCounts = usageCounts,
-            appLastUsedMs = usageLastMs
+            appLastUsedMs = usageLastMs,
+            permissionsOnboarded = prefs[Keys.PERMISSIONS_ONBOARDED] ?: false,
+            orbUseHtmlWebGl = prefs[Keys.ORB_USE_HTML_WEBGL] ?: true,
+            orbRotationSpeed = (prefs[Keys.ORB_ROTATION_SPEED] ?: 1.0f).coerceIn(0.2f, 2.5f),
+            orbBloomStrength = (prefs[Keys.ORB_BLOOM_STRENGTH] ?: 1.1f).coerceIn(0.3f, 2.0f),
+            orbScale = (prefs[Keys.ORB_SCALE] ?: 1.0f).coerceIn(0.65f, 1.35f),
+            orbAutoRotate = prefs[Keys.ORB_AUTO_ROTATE] ?: true,
+            orbShowTextNodes = prefs[Keys.ORB_SHOW_TEXT_NODES] ?: true,
+            orbShowDebris = prefs[Keys.ORB_SHOW_DEBRIS] ?: true,
+            orbSpeechGlowReactive = prefs[Keys.ORB_SPEECH_GLOW_REACTIVE] ?: true
         )
     }
 
@@ -254,6 +273,55 @@ class LauncherPreferencesRepository(private val context: Context) {
 
     suspend fun setSystemFloatingAiEnabled(enabled: Boolean) {
         context.stxDataStore.edit { it[Keys.SYSTEM_FLOATING_AI] = enabled }
+    }
+
+    suspend fun setPermissionsOnboarded(onboarded: Boolean) {
+        context.stxDataStore.edit { it[Keys.PERMISSIONS_ONBOARDED] = onboarded }
+    }
+
+    suspend fun setOrbUseHtmlWebGl(useHtml: Boolean) {
+        context.stxDataStore.edit { it[Keys.ORB_USE_HTML_WEBGL] = useHtml }
+    }
+
+    suspend fun setOrbRotationSpeed(speed: Float) {
+        context.stxDataStore.edit { it[Keys.ORB_ROTATION_SPEED] = speed.coerceIn(0.2f, 2.5f) }
+    }
+
+    suspend fun setOrbBloomStrength(bloom: Float) {
+        context.stxDataStore.edit { it[Keys.ORB_BLOOM_STRENGTH] = bloom.coerceIn(0.3f, 2.0f) }
+    }
+
+    suspend fun setOrbScale(scale: Float) {
+        context.stxDataStore.edit { it[Keys.ORB_SCALE] = scale.coerceIn(0.65f, 1.35f) }
+    }
+
+    suspend fun setOrbAutoRotate(enabled: Boolean) {
+        context.stxDataStore.edit { it[Keys.ORB_AUTO_ROTATE] = enabled }
+    }
+
+    suspend fun setOrbShowTextNodes(enabled: Boolean) {
+        context.stxDataStore.edit { it[Keys.ORB_SHOW_TEXT_NODES] = enabled }
+    }
+
+    suspend fun setOrbShowDebris(enabled: Boolean) {
+        context.stxDataStore.edit { it[Keys.ORB_SHOW_DEBRIS] = enabled }
+    }
+
+    suspend fun setOrbSpeechGlowReactive(enabled: Boolean) {
+        context.stxDataStore.edit { it[Keys.ORB_SPEECH_GLOW_REACTIVE] = enabled }
+    }
+
+    suspend fun resetOrbDefaults() {
+        context.stxDataStore.edit { prefs ->
+            prefs[Keys.ORB_USE_HTML_WEBGL] = true
+            prefs[Keys.ORB_ROTATION_SPEED] = 1.0f
+            prefs[Keys.ORB_BLOOM_STRENGTH] = 1.1f
+            prefs[Keys.ORB_SCALE] = 1.0f
+            prefs[Keys.ORB_AUTO_ROTATE] = true
+            prefs[Keys.ORB_SHOW_TEXT_NODES] = true
+            prefs[Keys.ORB_SHOW_DEBRIS] = true
+            prefs[Keys.ORB_SPEECH_GLOW_REACTIVE] = true
+        }
     }
 
     suspend fun recordAppLaunch(packageName: String) {

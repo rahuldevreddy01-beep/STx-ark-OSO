@@ -470,7 +470,7 @@ fun BoxScope.FloatingStxAiOverlay(
         StxHologramOrbAvatar(
             isSpeaking = state.aiSpeaking,
             isListening = voiceListening,
-            modifier = Modifier.size(44.dp)
+            modifier = Modifier.size(38.dp)
         )
         Box(
             modifier = Modifier

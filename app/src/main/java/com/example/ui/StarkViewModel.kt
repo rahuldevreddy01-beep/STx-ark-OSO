@@ -81,7 +81,8 @@ data class StarkUiState(
     val aiSpeechPulseTick: Int = 0,
     val statusBanner: String? = null,
     val lockScreenError: String? = null,
-    val lockAiReply: String? = null
+    val lockAiReply: String? = null,
+    val preferencesLoaded: Boolean = false
 )
 
 class StarkViewModel(application: Application) : AndroidViewModel(application) {
@@ -109,6 +110,9 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
         HubModule.STX_AI
     )
 
+    @Volatile
+    private var isForegroundActive = true
+
     private val preferencesFlow: StateFlow<LauncherPreferences> = prefsRepo.preferencesFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, LauncherPreferences())
 
@@ -124,11 +128,13 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
 
         telemetryManager.startMonitoring()
 
-        // Clock & live system snapshot ticker (1s)
+        // Clock & live system snapshot ticker (1s) — Binder/Disk IPCs run on Dispatchers.IO
         viewModelScope.launch {
             while (isActive) {
-                telemetryManager.refreshSystemSnapshot()
-                _uiState.update { it.copy(clock = buildClockSnapshot()) }
+                if (isForegroundActive) {
+                    telemetryManager.refreshSystemSnapshotAsync()
+                    _uiState.update { it.copy(clock = buildClockSnapshot()) }
+                }
                 delay(1000L)
             }
         }
@@ -203,7 +209,8 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
                     state.copy(
                         preferences = prefs,
                         installedApps = enrichedApps,
-                        topRecentApps = topRecent
+                        topRecentApps = topRecent,
+                        preferencesLoaded = true
                     )
                 }
             }
@@ -238,18 +245,38 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setForegroundActive(active: Boolean) {
+        isForegroundActive = active
+        syncSensorMode()
+        if (active) {
+            viewModelScope.launch {
+                telemetryManager.refreshSystemSnapshotAsync()
+                _uiState.update { it.copy(clock = buildClockSnapshot()) }
+            }
+        }
+    }
+
+    private fun syncSensorMode() {
+        val st = _uiState.value
+        val needsHighRate = st.mode == StarkMode.HALF_DIAL && st.activeModule == HubModule.HEALTH
+        telemetryManager.setSensorActivityState(
+            foreground = isForegroundActive,
+            highRateNeeded = needsHighRate
+        )
+    }
+
     fun onConfigurationChanged(isLandscape: Boolean) {
         val prev = _uiState.value
         val autoMorph = prev.preferences.autoMorphOrientation
+        val nextMode = if (!autoMorph) {
+            prev.mode
+        } else when {
+            isLandscape && prev.mode == StarkMode.PORTRAIT -> StarkMode.HUB
+            !isLandscape && prev.mode == StarkMode.HUB -> StarkMode.PORTRAIT
+            else -> prev.mode
+        }
+        if (prev.isDeviceLandscape == isLandscape && prev.mode == nextMode) return
         _uiState.update { state ->
-            val nextMode = if (!autoMorph) {
-                state.mode
-            } else when {
-                isLandscape && state.mode == StarkMode.PORTRAIT -> StarkMode.HUB
-                !isLandscape && (state.mode == StarkMode.HUB || state.mode == StarkMode.HALF_DIAL) ->
-                    StarkMode.PORTRAIT
-                else -> state.mode
-            }
             state.copy(
                 isDeviceLandscape = isLandscape,
                 mode = nextMode
@@ -258,8 +285,63 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onPermissionsUpdated() {
+        telemetryManager.refreshCameraCapabilities()
         telemetryManager.registerSensors()
-        telemetryManager.refreshSystemSnapshot()
+        viewModelScope.launch { telemetryManager.refreshSystemSnapshotAsync() }
+    }
+
+    fun markPermissionsOnboarded() {
+        viewModelScope.launch { prefsRepo.setPermissionsOnboarded(true) }
+    }
+
+    fun setOrbUseHtmlWebGl(useHtml: Boolean) {
+        playSelectCue()
+        viewModelScope.launch {
+            prefsRepo.setOrbUseHtmlWebGl(useHtml)
+            _uiState.update {
+                it.copy(statusBanner = if (useHtml) "STX CORE: 3D HTML ORB" else "STX CORE: HOLO GIRL")
+            }
+        }
+    }
+
+    fun setOrbRotationSpeed(speed: Float) {
+        viewModelScope.launch { prefsRepo.setOrbRotationSpeed(speed) }
+    }
+
+    fun setOrbBloomStrength(bloom: Float) {
+        viewModelScope.launch { prefsRepo.setOrbBloomStrength(bloom) }
+    }
+
+    fun setOrbScale(scale: Float) {
+        viewModelScope.launch { prefsRepo.setOrbScale(scale) }
+    }
+
+    fun setOrbAutoRotate(enabled: Boolean) {
+        playSelectCue()
+        viewModelScope.launch { prefsRepo.setOrbAutoRotate(enabled) }
+    }
+
+    fun setOrbShowTextNodes(enabled: Boolean) {
+        playSelectCue()
+        viewModelScope.launch { prefsRepo.setOrbShowTextNodes(enabled) }
+    }
+
+    fun setOrbShowDebris(enabled: Boolean) {
+        playSelectCue()
+        viewModelScope.launch { prefsRepo.setOrbShowDebris(enabled) }
+    }
+
+    fun setOrbSpeechGlowReactive(enabled: Boolean) {
+        playSelectCue()
+        viewModelScope.launch { prefsRepo.setOrbSpeechGlowReactive(enabled) }
+    }
+
+    fun resetOrbDefaults() {
+        playSelectCue()
+        viewModelScope.launch {
+            prefsRepo.resetOrbDefaults()
+            _uiState.update { it.copy(statusBanner = "3D ORB STUDIO RESET TO DEFAULTS") }
+        }
     }
 
     fun setMode(mode: StarkMode) {
@@ -275,6 +357,7 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
                 stxOverlayOpen = false
             )
         }
+        syncSensorMode()
     }
 
     fun cycleFoldMode() {
@@ -287,6 +370,7 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
             StarkMode.STX_AI -> StarkMode.PORTRAIT
         }
         _uiState.update { it.copy(mode = next, stxOverlayOpen = false) }
+        syncSensorMode()
     }
 
     fun toggleStxOverlay() {
@@ -334,6 +418,22 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+        syncSensorMode()
+    }
+
+    fun openSettingsSection(section: SettingsSection) {
+        playSelectCue()
+        val idx = hubModules.indexOf(HubModule.SETTINGS).coerceAtLeast(0)
+        _uiState.update {
+            it.copy(
+                hubSelectedIndex = idx,
+                activeModule = HubModule.SETTINGS,
+                subItemIndex = section.ordinal,
+                mode = StarkMode.HALF_DIAL,
+                stxOverlayOpen = false
+            )
+        }
+        syncSensorMode()
     }
 
     fun selectSubIndex(index: Int, count: Int) {
@@ -359,6 +459,7 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
                     mode = if (it.isDeviceLandscape) StarkMode.HUB else StarkMode.PORTRAIT
                 )
             }
+            syncSensorMode()
             return true
         }
         return false
@@ -674,7 +775,7 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
 
     fun syncHardwareAndApps() {
         playSelectCue()
-        telemetryManager.refreshSystemSnapshot()
+        viewModelScope.launch { telemetryManager.refreshSystemSnapshotAsync() }
         reloadInstalledApps()
         _uiState.update { it.copy(statusBanner = "TELEMETRY & APP MATRIX SYNCED") }
     }

@@ -1,0 +1,1423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Orb</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+    touch-action: none;
+  }
+  body.embedded {
+    background: #000;
+  }
+  #orb-container {
+    width: 100vw;
+    height: 100vh;
+    display: block;
+    touch-action: none;
+  }
+  #orb-container canvas {
+    display: block;
+    touch-action: none;
+  }
+
+  #mic-btn {
+    position: fixed;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 170, 48, 0.35);
+    background: rgba(20, 12, 4, 0.55);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    transition: box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    box-shadow: 0 0 12px rgba(255, 130, 20, 0.15);
+  }
+  #mic-btn:hover {
+    border-color: rgba(255, 170, 48, 0.7);
+  }
+  #mic-btn.active {
+    border-color: rgba(255, 190, 90, 0.9);
+    background: rgba(60, 28, 4, 0.6);
+  }
+  #mic-btn svg {
+    width: 26px;
+    height: 26px;
+    stroke: #ffb454;
+    fill: none;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0.85;
+  }
+  #mic-btn.active svg {
+    stroke: #ffe0a3;
+    opacity: 1;
+  }
+  #mic-status {
+    position: fixed;
+    bottom: 106px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255, 190, 130, 0.65);
+    font: 11px/1.4 "Courier New", monospace;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    z-index: 10;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  #stt-display {
+    position: fixed;
+    bottom: 128px;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 80vw;
+    color: rgba(255, 220, 150, 0.85);
+    font: 13px/1.4 "Courier New", monospace;
+    text-align: center;
+    z-index: 10;
+    pointer-events: none;
+    white-space: normal;
+    word-wrap: break-word;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+  #stt-display.visible {
+    opacity: 1;
+  }
+  #stt-display .final {
+    color: rgba(255, 230, 170, 0.95);
+  }
+  #stt-display .interim {
+    color: rgba(255, 190, 130, 0.55);
+    font-style: italic;
+  }
+  body.embedded #mic-btn,
+  body.embedded #mic-status,
+  body.embedded #stt-display {
+    display: none !important;
+  }
+</style>
+</head>
+<body>
+<div id="orb-container"></div>
+
+<button id="mic-btn" aria-label="Toggle microphone">
+  <svg viewBox="0 0 24 24">
+    <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/>
+    <path d="M19 11a7 7 0 0 1-14 0"/>
+    <line x1="12" y1="18" x2="12" y2="22"/>
+    <line x1="8" y1="22" x2="16" y2="22"/>
+  </svg>
+</button>
+<div id="mic-status">tap to listen</div>
+<div id="stt-display"></div>
+
+<script type="module">
+import * as THREE from "./three/build/three.module.js";
+import { OrbitControls } from "./three/examples/jsm/controls/OrbitControls.js";
+import { EffectComposer } from "./three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "./three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "./three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { ShaderPass } from "./three/examples/jsm/postprocessing/ShaderPass.js";
+
+const params = new URLSearchParams(window.location.search);
+const isEmbedded = params.get("embed") === "1";
+const isDialCore = params.get("dial") === "1";
+if (isEmbedded) {
+  document.body.classList.add("embedded");
+}
+
+function notifyError(msg) {
+  try {
+    if (window.AndroidOrbBridge && typeof window.AndroidOrbBridge.onOrbError === "function") {
+      window.AndroidOrbBridge.onOrbError(String(msg || "WebGL error"));
+    }
+  } catch (_) {}
+}
+
+function notifyReady() {
+  try {
+    if (window.AndroidOrbBridge && typeof window.AndroidOrbBridge.onOrbReady === "function") {
+      window.AndroidOrbBridge.onOrbReady();
+    }
+  } catch (_) {}
+}
+
+window.addEventListener("error", (ev) => {
+  if (ev && ev.message) notifyError(ev.message);
+});
+window.addEventListener("unhandledrejection", (ev) => {
+  if (ev && ev.reason) notifyError(ev.reason.message || String(ev.reason));
+});
+
+const HOME_POSITION = isDialCore
+  ? new THREE.Vector3(0, 0.12, 3.85)
+  : new THREE.Vector3(0, 0.5, 5.5);
+const MIN_DISTANCE = 0.6;
+const MAX_DISTANCE = 40;
+
+function supportsHalfFloatFramebuffer(renderer) {
+  try {
+    const gl = renderer.getContext();
+    if (!gl) return false;
+    const isWebGL2 = renderer.capabilities && renderer.capabilities.isWebGL2;
+    const extOk = isWebGL2
+      ? !!gl.getExtension("EXT_color_buffer_float")
+      : (!!gl.getExtension("EXT_color_buffer_half_float") && !!gl.getExtension("OES_texture_half_float"));
+    if (!extOk) return false;
+
+    const testTex = gl.createTexture();
+    const testFb = gl.createFramebuffer();
+    if (!testTex || !testFb) return false;
+    gl.bindTexture(gl.TEXTURE_2D, testTex);
+    const internalFormat = isWebGL2 ? gl.RGBA16F : gl.RGBA;
+    const halfFloatEnum = isWebGL2 ? gl.HALF_FLOAT : (gl.getExtension("OES_texture_half_float")?.HALF_FLOAT_OES || gl.UNSIGNED_BYTE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, 4, 4, 0, gl.RGBA, halfFloatEnum, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, testFb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, testTex, 0);
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.deleteFramebuffer(testFb);
+    gl.deleteTexture(testTex);
+    return status === gl.FRAMEBUFFER_COMPLETE;
+  } catch (_) {
+    return false;
+  }
+}
+
+function createCanvasFallbackOrb(container) {
+  const canvas = document.createElement("canvas");
+  canvas.style.width = "100%";
+  canvas.style.height = "100%";
+  canvas.style.display = "block";
+  container.appendChild(canvas);
+  const ctx = canvas.getContext("2d");
+  const settings = { speed: 1.0, bloomStrength: 1.1, scale: 1.0, autoRotate: true, showText: true, showDebris: true, speechGlowReactive: true };
+  let paused = false;
+  let disposed = false;
+  let rafId = 0;
+  let angle = 0;
+  let glowUntil = 0;
+
+  function resize() {
+    const w = Math.max(container.clientWidth || window.innerWidth || 200, 1);
+    const h = Math.max(container.clientHeight || window.innerHeight || 200, 1);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resize();
+  window.addEventListener("resize", resize);
+
+  const particles = Array.from({ length: 48 }, (_, i) => ({
+    phi: Math.acos(1 - (2 * (i + 0.5)) / 48),
+    theta: i * 2.39996,
+  }));
+
+  function frame() {
+    if (disposed || paused) { rafId = 0; return; }
+    rafId = requestAnimationFrame(frame);
+    const w = container.clientWidth || window.innerWidth || 200;
+    const h = container.clientHeight || window.innerHeight || 200;
+    const cx = w / 2;
+    const cy = h / 2;
+    const r = Math.min(w, h) * 0.36 * settings.scale;
+    const now = performance.now() / 1000;
+    if (settings.autoRotate) angle += 0.012 * settings.speed;
+
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, w, h);
+
+    const glowing = now < glowUntil;
+    const grad = ctx.createRadialGradient(cx, cy, r * 0.05, cx, cy, r * 1.15);
+    grad.addColorStop(0, glowing ? "rgba(255, 110, 60, 0.45)" : "rgba(245, 225, 70, 0.35)");
+    grad.addColorStop(0.5, "rgba(180, 150, 30, 0.14)");
+    grad.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.15, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(221, 221, 51, 0.45)";
+    ctx.lineWidth = 1;
+    for (let i = -3; i <= 3; i++) {
+      const lat = (i / 4) * (Math.PI / 2);
+      const ry = Math.sin(lat) * r;
+      const rx = Math.cos(lat) * r;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + ry * 0.85, rx, rx * 0.24, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    for (let j = 0; j < 6; j++) {
+      const a = angle + (j / 6) * Math.PI;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, Math.max(Math.abs(Math.cos(a)) * r, 2), r, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = "rgba(238, 238, 85, 0.85)";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.42, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = glowing ? "#ff5544" : "#eeee55";
+    for (const p of particles) {
+      const t = p.theta + angle;
+      const z = Math.sin(p.phi) * Math.sin(t);
+      if (z > -0.2) {
+        const px = cx + r * Math.sin(p.phi) * Math.cos(t);
+        const py = cy + r * Math.cos(p.phi);
+        ctx.beginPath();
+        ctx.arc(px, py, z > 0.4 ? 1.8 : 1.1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+  frame();
+  notifyReady();
+
+  return {
+    rotateBy: () => {},
+    zoomBy: () => {},
+    zoomIn: () => {},
+    zoomOut: () => {},
+    resetView: () => {},
+    dispose: () => { disposed = true; if (rafId) cancelAnimationFrame(rafId); window.removeEventListener("resize", resize); canvas.remove(); },
+    setAudioAnalyser: () => {},
+    triggerGlow: () => { glowUntil = performance.now() / 1000 + 1.8; return 1; },
+    applySettings: (p) => { if (p && typeof p === "object") Object.assign(settings, p); },
+    setPaused: (p) => { paused = !!p; if (!paused && !disposed && !rafId) frame(); },
+  };
+}
+
+function createOrbScene(container) {
+  const width = Math.max(container.clientWidth || window.innerWidth || 240, 1);
+  const height = Math.max(container.clientHeight || window.innerHeight || 240, 1);
+
+  // ——— SCENE ———
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(isDialCore ? 52 : 55, width / height, 0.1, 500);
+  camera.position.copy(HOME_POSITION);
+
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+  } catch (_) {
+    renderer = new THREE.WebGLRenderer({ antialias: false });
+  }
+  renderer.setSize(width, height);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isDialCore ? 1.25 : 1.5));
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  container.appendChild(renderer.domElement);
+
+  const canHalfFloatFbo = supportsHalfFloatFramebuffer(renderer);
+  let useComposer = canHalfFloatFbo && Math.min(width, height) >= 48;
+  renderer.toneMappingExposure = useComposer ? 0.65 : 1.45;
+
+  // ——— POST PROCESSING (only when GPU supports renderable HalfFloat FBOs) ———
+  let composer = null;
+  let bloom = null;
+  let chromaticPass = null;
+  if (useComposer) {
+    try {
+      composer = new EffectComposer(renderer);
+      composer.addPass(new RenderPass(scene, camera));
+      bloom = new UnrealBloomPass(
+        new THREE.Vector2(width, height),
+        1.1,
+        0.4,
+        0.35,
+      );
+      composer.addPass(bloom);
+      const chromaticShader = {
+        uniforms: {
+          tDiffuse: { value: null },
+          uTime: { value: 0 },
+          uIntensity: { value: 0.003 },
+        },
+        vertexShader: `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform sampler2D tDiffuse;
+          uniform float uTime;
+          uniform float uIntensity;
+          varying vec2 vUv;
+          void main() {
+            vec2 dir = vUv - vec2(0.5);
+            float d = length(dir);
+            float offset = uIntensity * d;
+            float flicker = 1.0 + 0.02 * sin(uTime * 30.0) * sin(uTime * 7.3);
+            vec4 cr = texture2D(tDiffuse, vUv + dir * offset);
+            vec4 cg = texture2D(tDiffuse, vUv);
+            vec4 cb = texture2D(tDiffuse, vUv - dir * offset * 0.5);
+            gl_FragColor = vec4(cr.r, cg.g * 1.05, cb.b * 0.6, 1.0) * flicker;
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * vec3(1.15, 0.85, 0.55), 0.3);
+          }
+        `,
+      };
+      chromaticPass = new ShaderPass(chromaticShader);
+      composer.addPass(chromaticPass);
+    } catch (_) {
+      useComposer = false;
+      composer = null;
+      renderer.toneMappingExposure = 1.45;
+    }
+  }
+
+  // Controls
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.04;
+  controls.minDistance = MIN_DISTANCE;
+  controls.maxDistance = MAX_DISTANCE;
+  controls.zoomSpeed = 1.4;
+  controls.enablePan = false;
+
+  // ——— COLORS ———
+  const C_BRIGHT = 0xdddd33;
+  const C_MID = 0xaaaa22;
+  const C_DIM = 0x666619;
+  const C_FAINT = 0x44440f;
+  const C_HOT = 0xeeee55;
+  const C_GLOW_RED = 0xff2a2a;
+
+  // ——— LIVE CUSTOMIZATION STATE (controlled from Android Settings -> 07 ORB STUDIO) ———
+  const settings = {
+    speed: 1.0,
+    bloomStrength: 1.1,
+    scale: 1.0,
+    autoRotate: true,
+    showText: true,
+    showDebris: true,
+    speechGlowReactive: true,
+  };
+
+  // ——— ORB ROOT ———
+  const orbGroup = new THREE.Group();
+  scene.add(orbGroup);
+
+  function lineMat(color, opacity = 1) {
+    return new THREE.LineBasicMaterial({
+      color,
+      transparent: true,
+      opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+  }
+
+  function latRing(radius, lat, segs = 120) {
+    const r = radius * Math.cos(lat);
+    const y = radius * Math.sin(lat);
+    const pts = [];
+    for (let i = 0; i <= segs; i++) {
+      const a = (i / segs) * Math.PI * 2;
+      pts.push(new THREE.Vector3(r * Math.cos(a), y, r * Math.sin(a)));
+    }
+    return new THREE.BufferGeometry().setFromPoints(pts);
+  }
+
+  function meridian(radius, lon, segs = 120) {
+    const pts = [];
+    for (let i = 0; i <= segs; i++) {
+      const lat = (i / segs) * Math.PI - Math.PI / 2;
+      pts.push(
+        new THREE.Vector3(
+          radius * Math.cos(lat) * Math.cos(lon),
+          radius * Math.sin(lat),
+          radius * Math.cos(lat) * Math.sin(lon),
+        ),
+      );
+    }
+    return new THREE.BufferGeometry().setFromPoints(pts);
+  }
+
+  // LAYER 1: OUTER SHELL
+  const outerShell = new THREE.Group();
+  const R1 = 2.0;
+
+  for (let i = -15; i <= 15; i++) {
+    const lat = (i / 15) * (Math.PI / 2) * 0.95;
+    const opacity = i % 3 === 0 ? 0.5 : 0.12;
+    const color = i % 3 === 0 ? C_MID : C_FAINT;
+    outerShell.add(new THREE.Line(latRing(R1, lat), lineMat(color, opacity)));
+  }
+
+  for (let i = 0; i < 24; i++) {
+    const lon = (i / 24) * Math.PI * 2;
+    const isMajor = i % 6 === 0;
+    outerShell.add(
+      new THREE.Line(
+        meridian(R1, lon),
+        lineMat(isMajor ? C_MID : C_FAINT, isMajor ? 0.6 : 0.1),
+      ),
+    );
+  }
+
+  const CROSS_LINES = 18;
+  const CROSS_SPREAD = 0.25;
+  for (let i = 0; i < 4; i++) {
+    const lon = (i / 4) * Math.PI * 2;
+    for (let j = 0; j < CROSS_LINES; j++) {
+      const t = (j / (CROSS_LINES - 1)) * 2 - 1;
+      const offset = (t * CROSS_SPREAD) / 2;
+      const falloff = 1 - Math.abs(t) * 0.7;
+      const opacity = 0.45 * falloff;
+      const color = Math.abs(t) < 0.3 ? C_BRIGHT : C_MID;
+      outerShell.add(
+        new THREE.Line(meridian(R1, lon + offset, 200), lineMat(color, opacity)),
+      );
+    }
+  }
+
+  const EQ_LINES = 20;
+  const EQ_SPREAD = 0.35;
+  for (let j = 0; j < EQ_LINES; j++) {
+    const t = (j / (EQ_LINES - 1)) * 2 - 1;
+    const offset = (t * EQ_SPREAD) / 2;
+    const falloff = 1 - Math.abs(t) * 0.65;
+    const opacity = 0.42 * falloff;
+    const color = Math.abs(t) < 0.3 ? C_BRIGHT : C_MID;
+    outerShell.add(
+      new THREE.Line(latRing(R1, offset, 200), lineMat(color, opacity)),
+    );
+  }
+
+  orbGroup.add(outerShell);
+
+  // LAYER 2: GRID PANELS
+  const panelGroup = new THREE.Group();
+
+  function createSpherePanel(latCenter, lonCenter, latSpan, lonSpan, radius, divisions = 4) {
+    const group = new THREE.Group();
+    const mat = lineMat(C_DIM, 0.25);
+
+    for (let i = 0; i <= divisions; i++) {
+      const lat = latCenter - latSpan / 2 + (i / divisions) * latSpan;
+      const pts = [];
+      for (let j = 0; j <= divisions * 4; j++) {
+        const lon = lonCenter - lonSpan / 2 + (j / (divisions * 4)) * lonSpan;
+        pts.push(
+          new THREE.Vector3(
+            radius * Math.cos(lat) * Math.cos(lon),
+            radius * Math.sin(lat),
+            radius * Math.cos(lat) * Math.sin(lon),
+          ),
+        );
+      }
+      group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
+    }
+
+    for (let j = 0; j <= divisions; j++) {
+      const lon = lonCenter - lonSpan / 2 + (j / divisions) * lonSpan;
+      const pts = [];
+      for (let i = 0; i <= divisions * 4; i++) {
+        const lat = latCenter - latSpan / 2 + (i / (divisions * 4)) * latSpan;
+        pts.push(
+          new THREE.Vector3(
+            radius * Math.cos(lat) * Math.cos(lon),
+            radius * Math.sin(lat),
+            radius * Math.cos(lat) * Math.sin(lon),
+          ),
+        );
+      }
+      group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
+    }
+
+    return group;
+  }
+
+  for (let i = 0; i < 30; i++) {
+    const lat = (Math.random() - 0.5) * Math.PI * 0.8;
+    const lon = Math.random() * Math.PI * 2;
+    const size = 0.15 + Math.random() * 0.25;
+    const panel = createSpherePanel(
+      lat,
+      lon,
+      size,
+      size,
+      R1 + 0.01,
+      3 + Math.floor(Math.random() * 3),
+    );
+    panelGroup.add(panel);
+  }
+  orbGroup.add(panelGroup);
+
+  // LAYER 3: SECONDARY SHELL
+  const shell2 = new THREE.Group();
+  const R2 = 2.12;
+
+  for (let i = 0; i < 16; i++) {
+    const lat = (Math.random() - 0.5) * Math.PI * 0.85;
+    const startLon = Math.random() * Math.PI * 2;
+    const arcLen = 0.3 + Math.random() * 1.2;
+    const pts = [];
+    const segs = 60;
+    const r = R2 * Math.cos(lat);
+    const y = R2 * Math.sin(lat);
+    for (let j = 0; j <= segs; j++) {
+      const a = startLon + (j / segs) * arcLen;
+      pts.push(new THREE.Vector3(r * Math.cos(a), y, r * Math.sin(a)));
+    }
+    shell2.add(
+      new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(pts),
+        lineMat(C_MID, 0.2 + Math.random() * 0.3),
+      ),
+    );
+  }
+
+  for (let i = 0; i < 12; i++) {
+    const lon = Math.random() * Math.PI * 2;
+    const startLat = (Math.random() - 0.5) * Math.PI * 0.8;
+    const arcLen = 0.3 + Math.random() * 0.8;
+    const pts = [];
+    const segs = 40;
+    for (let j = 0; j <= segs; j++) {
+      const lat = startLat + (j / segs) * arcLen;
+      pts.push(
+        new THREE.Vector3(
+          R2 * Math.cos(lat) * Math.cos(lon),
+          R2 * Math.sin(lat),
+          R2 * Math.cos(lat) * Math.sin(lon),
+        ),
+      );
+    }
+    shell2.add(
+      new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(pts),
+        lineMat(C_DIM, 0.15 + Math.random() * 0.2),
+      ),
+    );
+  }
+  orbGroup.add(shell2);
+
+  // LAYER 4: INNER CORE — spiral geodesic
+  const innerCore = new THREE.Group();
+  const R3 = 0.9;
+
+  for (let s = 0; s < 8; s++) {
+    const pts = [];
+    const turns = 3 + Math.random() * 2;
+    const segs = 300;
+    const phase = (s / 8) * Math.PI * 2;
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const lat = t * Math.PI - Math.PI / 2;
+      const lon = t * turns * Math.PI * 2 + phase;
+      pts.push(
+        new THREE.Vector3(
+          R3 * Math.cos(lat) * Math.cos(lon),
+          R3 * Math.sin(lat),
+          R3 * Math.cos(lat) * Math.sin(lon),
+        ),
+      );
+    }
+    innerCore.add(
+      new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(pts),
+        lineMat(C_BRIGHT, 0.3 + Math.random() * 0.2),
+      ),
+    );
+  }
+
+  for (let i = -6; i <= 6; i++) {
+    const lat = (i / 6) * (Math.PI / 2) * 0.9;
+    innerCore.add(new THREE.Line(latRing(R3, lat, 80), lineMat(C_DIM, 0.2)));
+  }
+
+  for (let i = 0; i < 12; i++) {
+    const lon = (i / 12) * Math.PI * 2;
+    innerCore.add(new THREE.Line(meridian(R3, lon, 80), lineMat(C_DIM, 0.15)));
+  }
+
+  orbGroup.add(innerCore);
+
+  // LAYER 5: INNERMOST CORE
+  const coreR = 0.25;
+
+  const icoGeo = new THREE.IcosahedronGeometry(coreR, 1);
+  const icoEdges = new THREE.EdgesGeometry(icoGeo);
+  const icoWireMat = lineMat(C_HOT, 0.2);
+  const icoWire = new THREE.LineSegments(icoEdges, icoWireMat);
+  orbGroup.add(icoWire);
+
+  const coreSphereMat = new THREE.MeshBasicMaterial({
+    color: C_HOT,
+    transparent: true,
+    opacity: 0.15,
+    blending: THREE.AdditiveBlending,
+  });
+  const coreSphere = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 16), coreSphereMat);
+  orbGroup.add(coreSphere);
+
+  const glowSphereMat = new THREE.MeshBasicMaterial({
+    color: C_MID,
+    transparent: true,
+    opacity: 0.04,
+    blending: THREE.AdditiveBlending,
+  });
+  const glowSphere = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 16), glowSphereMat);
+  orbGroup.add(glowSphere);
+
+  // CODE TEXT
+  const codeSnippets = (window.CHAT_SNIPPETS && window.CHAT_SNIPPETS.length)
+    ? window.CHAT_SNIPPETS
+    : [
+      "Xandor", "Veylith", "Nexarion", ">> Starforge",
+      "Kryonix", "Chamber", "Vibranium", "Nebula",
+      "Voidfall", "K-77", "::890Q", "Solarflare",
+      "Starkverse", "Omega Protocol", ">>> Quantum Rift",
+      "Aetherion", "Klyntar", "Zeraph", "9000LY+9000LY",
+      "7cycles", "Chronobreak", "GLITCH ∞", "Nova Prime",
+      "Asgard", "Eclipse", "Celestials", "Warp Core",
+      "Symbiote", "Arc Reactor", "Jarvis-X", "Quantum-512",
+      "Hyperdrive", "12LXP", "2099MAX", "Chronolag",
+      "∞yr ONLINE", "PATCH //MULTIVERSE", "Galactus",
+      "Wakanda-X", "damnatio", "Confusion-X", "Dark Dimension",
+      "Neural Rift", ".eternity."
+    ];
+
+  const wordTextureCache = new Map();
+  const wordGlowTextureCache = new Map();
+
+  function textureForWord(text) {
+    if (wordTextureCache.has(text)) return wordTextureCache.get(text);
+    const c = document.createElement("canvas");
+    c.width = 256;
+    c.height = 32;
+    const ctx = c.getContext("2d");
+    ctx.font = "bold 14px Courier New";
+    ctx.fillStyle = "rgba(220, 220, 60, 0.55)";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, 128, 16);
+    const tex = new THREE.CanvasTexture(c);
+    tex.minFilter = THREE.LinearFilter;
+    wordTextureCache.set(text, tex);
+    return tex;
+  }
+
+  function glowTextureForWord(text) {
+    if (wordGlowTextureCache.has(text)) return wordGlowTextureCache.get(text);
+    const c = document.createElement("canvas");
+    c.width = 256;
+    c.height = 32;
+    const ctx = c.getContext("2d");
+    ctx.font = "bold 14px Courier New";
+    ctx.shadowColor = "rgba(255, 20, 20, 1)";
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = "rgba(255, 60, 60, 1)";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, 128, 16);
+    ctx.fillText(text, 128, 16);
+    const tex = new THREE.CanvasTexture(c);
+    tex.minFilter = THREE.LinearFilter;
+    wordGlowTextureCache.set(text, tex);
+    return tex;
+  }
+
+  const allTextSprites = [];
+
+  function makeTextSprite(size = 0.08) {
+    const word = codeSnippets[Math.floor(Math.random() * codeSnippets.length)];
+    const normalTex = textureForWord(word);
+    const s = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: normalTex,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        opacity: 0.6,
+      }),
+    );
+    const baseX = size * 5;
+    const baseY = size * 0.7;
+    s.scale.set(baseX, baseY, 1);
+    s.userData.word = word;
+    s.userData.baseScaleX = baseX;
+    s.userData.baseScaleY = baseY;
+    s.userData.glowUntil = 0;
+    s.userData.normalTex = normalTex;
+    s.userData.glowTex = null;
+    s.userData.isGlowing = false;
+    allTextSprites.push(s);
+    return s;
+  }
+
+  function scatterText(count, sizeFn, rFn, speedScale) {
+    const group = new THREE.Group();
+    for (let i = 0; i < count; i++) {
+      const sp = makeTextSprite(sizeFn());
+      const phi = Math.acos(2 * Math.random() - 1);
+      const theta = Math.random() * Math.PI * 2;
+      const r = rFn();
+      sp.position.set(
+        r * Math.sin(phi) * Math.cos(theta),
+        r * Math.cos(phi),
+        r * Math.sin(phi) * Math.sin(theta),
+      );
+      Object.assign(sp.userData, {
+        phi,
+        theta,
+        r,
+        speed:
+          (speedScale[0] + Math.random() * speedScale[1]) *
+          (Math.random() > 0.5 ? 1 : -1),
+      });
+      group.add(sp);
+    }
+    return group;
+  }
+
+  const clock = new THREE.Clock();
+  const GLOW_DURATION = 1.8;
+  function triggerGlow(rawWord) {
+    if (!settings.speechGlowReactive) return 0;
+    const word = String(rawWord || "").trim().toLowerCase();
+    if (word.length < 2) return 0;
+    const now = clock.getElapsedTime();
+    let hits = 0;
+    for (const sp of allTextSprites) {
+      const w = sp.userData.word.toLowerCase();
+      if (w === word || w.includes(word) || word.includes(w)) {
+        if (!sp.userData.glowTex) {
+          sp.userData.glowTex = glowTextureForWord(sp.userData.word);
+        }
+        sp.userData.glowUntil = now + GLOW_DURATION;
+        hits++;
+      }
+    }
+    return hits;
+  }
+
+  const textRoot = new THREE.Group();
+  const textOuter = scatterText(
+    isDialCore ? 260 : 1200,
+    () => (isDialCore ? 0.055 : 0.04) + Math.random() * 0.04,
+    () => R1 + 0.03 + Math.random() * 0.08,
+    [0.0002, 0.0008],
+  );
+  textRoot.add(textOuter);
+
+  const textInner = scatterText(
+    isDialCore ? 40 : 100,
+    () => 0.03 + Math.random() * 0.03,
+    () => R3 + 0.02,
+    [0.0005, 0.001],
+  );
+  textRoot.add(textInner);
+
+  const textAmbient = scatterText(
+    isDialCore ? 120 : 400,
+    () => 0.03,
+    () => R3 + 0.2 + Math.random() * (R1 - R3 - 0.3),
+    [0.0003, 0.0006],
+  );
+  textRoot.add(textAmbient);
+  orbGroup.add(textRoot);
+
+  // ORBITING DEBRIS / ROCKS
+  const debrisGroup = new THREE.Group();
+  const debrisGeos = [
+    new THREE.IcosahedronGeometry(0.012, 0),
+    new THREE.IcosahedronGeometry(0.02, 0),
+    new THREE.IcosahedronGeometry(0.03, 1),
+    new THREE.IcosahedronGeometry(0.008, 0),
+    new THREE.TetrahedronGeometry(0.015, 0),
+    new THREE.OctahedronGeometry(0.018, 0),
+  ];
+  const debris = [];
+  const debrisCount = isDialCore ? 90 : 250;
+  for (let i = 0; i < debrisCount; i++) {
+    const geo = debrisGeos[Math.floor(Math.random() * debrisGeos.length)];
+    const mat = new THREE.MeshBasicMaterial({
+      color: Math.random() > 0.7 ? C_BRIGHT : C_MID,
+      transparent: true,
+      opacity: 0.3 + Math.random() * 0.6,
+      blending: THREE.AdditiveBlending,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    const orbitR = 1.2 + Math.random() * 4.0;
+    const speed = (0.08 + Math.random() * 0.6) * (Math.random() > 0.5 ? 1 : -1);
+    const tiltX = (Math.random() - 0.5) * Math.PI * 0.9;
+    const tiltZ = (Math.random() - 0.5) * Math.PI * 0.5;
+    const phase = Math.random() * Math.PI * 2;
+    mesh.userData = { orbitR, speed, tiltX, tiltZ, phase };
+    debris.push(mesh);
+    debrisGroup.add(mesh);
+
+    if (Math.random() > 0.85) {
+      const trailPts = [];
+      for (let j = 0; j <= 15; j++) {
+        const a = -(j / 15) * 0.3;
+        trailPts.push(
+          new THREE.Vector3(
+            orbitR * Math.cos(a + phase),
+            orbitR * 0.08 * Math.sin(a * 3),
+            orbitR * Math.sin(a + phase),
+          ),
+        );
+      }
+      const trail = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(trailPts),
+        lineMat(C_FAINT, 0.08),
+      );
+      mesh.add(trail);
+    }
+  }
+  orbGroup.add(debrisGroup);
+
+  // DUST PARTICLES
+  const dustCount = isDialCore ? 700 : 2000;
+  const dustPos = new Float32Array(dustCount * 3);
+
+  for (let i = 0; i < dustCount; i++) {
+    const rr = 0.5 + Math.pow(Math.random(), 0.6) * 7;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    dustPos[i * 3] = rr * Math.sin(phi) * Math.cos(theta);
+    dustPos[i * 3 + 1] = rr * Math.cos(phi);
+    dustPos[i * 3 + 2] = rr * Math.sin(phi) * Math.sin(theta);
+  }
+
+  const dustGeo = new THREE.BufferGeometry();
+  dustGeo.setAttribute("position", new THREE.Float32BufferAttribute(dustPos, 3));
+
+  const dotC = document.createElement("canvas");
+  dotC.width = dotC.height = 64;
+  const dCtx = dotC.getContext("2d");
+  const g = dCtx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, "rgba(255,170,48,1)");
+  g.addColorStop(0.2, "rgba(255,120,20,0.6)");
+  g.addColorStop(0.5, "rgba(200,80,0,0.15)");
+  g.addColorStop(1, "rgba(100,40,0,0)");
+  dCtx.fillStyle = g;
+  dCtx.fillRect(0, 0, 64, 64);
+
+  const dustMat = new THREE.PointsMaterial({
+    map: new THREE.CanvasTexture(dotC),
+    size: 0.04,
+    transparent: true,
+    opacity: 0.5,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    sizeAttenuation: true,
+    color: C_BRIGHT,
+  });
+  const dustPoints = new THREE.Points(dustGeo, dustMat);
+  orbGroup.add(dustPoints);
+
+  // SCANNING RINGS
+  function makeScanRing(radius, thickness = 0.015) {
+    const geo = new THREE.RingGeometry(radius - thickness, radius + thickness, 120);
+    const mat = new THREE.MeshBasicMaterial({
+      color: C_BRIGHT,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = Math.PI / 2;
+    return mesh;
+  }
+
+  const scanRing1 = makeScanRing(R1, 0.01);
+  const scanRing2 = makeScanRing(R1 * 0.7, 0.008);
+  orbGroup.add(scanRing1, scanRing2);
+
+  // HEXAGONAL NODES
+  for (let i = 0; i < 15; i++) {
+    const phi = Math.acos(2 * Math.random() - 1);
+    const theta = Math.random() * Math.PI * 2;
+    const r = R1 + 0.02;
+    const hexGeo = new THREE.CircleGeometry(0.03 + Math.random() * 0.02, 6);
+    const hexEdges = new THREE.EdgesGeometry(hexGeo);
+    const hex = new THREE.LineSegments(hexEdges, lineMat(C_MID, 0.5));
+    hex.position.set(
+      r * Math.sin(phi) * Math.cos(theta),
+      r * Math.cos(phi),
+      r * Math.sin(phi) * Math.sin(theta),
+    );
+    hex.lookAt(0, 0, 0);
+    outerShell.add(hex);
+  }
+
+  // CAMERA CONTROLS
+  const sphericalScratch = new THREE.Spherical();
+  const offsetScratch = new THREE.Vector3();
+
+  function rotateBy(deltaTheta, deltaPhi) {
+    offsetScratch.copy(camera.position).sub(controls.target);
+    sphericalScratch.setFromVector3(offsetScratch);
+    sphericalScratch.theta -= deltaTheta;
+    sphericalScratch.phi = THREE.MathUtils.clamp(
+      sphericalScratch.phi - deltaPhi,
+      0.05,
+      Math.PI - 0.05,
+    );
+    sphericalScratch.makeSafe();
+    offsetScratch.setFromSpherical(sphericalScratch);
+    camera.position.copy(controls.target).add(offsetScratch);
+    camera.lookAt(controls.target);
+  }
+
+  function zoomBy(factor) {
+    offsetScratch.copy(camera.position).sub(controls.target);
+    const dist = THREE.MathUtils.clamp(
+      offsetScratch.length() * factor,
+      MIN_DISTANCE,
+      MAX_DISTANCE,
+    );
+    offsetScratch.setLength(dist);
+    camera.position.copy(controls.target).add(offsetScratch);
+  }
+
+  function resetView() {
+    camera.position.copy(HOME_POSITION);
+    controls.target.set(0, 0, 0);
+    camera.lookAt(controls.target);
+    controls.update();
+  }
+
+  function applySettings(partial) {
+    if (!partial || typeof partial !== "object") return;
+    if (typeof partial.speed === "number" && Number.isFinite(partial.speed)) {
+      settings.speed = THREE.MathUtils.clamp(partial.speed, 0.1, 3.0);
+    }
+    if (typeof partial.bloomStrength === "number" && Number.isFinite(partial.bloomStrength)) {
+      settings.bloomStrength = THREE.MathUtils.clamp(partial.bloomStrength, 0.2, 2.2);
+    }
+    if (typeof partial.scale === "number" && Number.isFinite(partial.scale)) {
+      settings.scale = THREE.MathUtils.clamp(partial.scale, 0.5, 1.5);
+    }
+    if (typeof partial.autoRotate === "boolean") {
+      settings.autoRotate = partial.autoRotate;
+    }
+    if (typeof partial.showText === "boolean") {
+      settings.showText = partial.showText;
+      textRoot.visible = settings.showText;
+    }
+    if (typeof partial.showDebris === "boolean") {
+      settings.showDebris = partial.showDebris;
+      debrisGroup.visible = settings.showDebris;
+    }
+    if (typeof partial.speechGlowReactive === "boolean") {
+      settings.speechGlowReactive = partial.speechGlowReactive;
+    }
+  }
+
+  // ANIMATION LOOP
+  let flickerTimer = 0;
+  let rafId = 0;
+  let disposed = false;
+  let paused = false;
+
+  let audioAnalyser = null;
+  let audioData = null;
+  let audioLevel = 0;
+
+  function setAudioAnalyser(analyser) {
+    audioAnalyser = analyser;
+    audioData = analyser ? new Uint8Array(analyser.fftSize) : null;
+    if (!analyser) audioLevel = 0;
+  }
+
+  const driftGroups = [
+    [textOuter, 1],
+    [textInner, 2],
+    [textAmbient, 1.2],
+  ];
+
+  function animate() {
+    if (disposed || paused) {
+      rafId = 0;
+      return;
+    }
+    rafId = requestAnimationFrame(animate);
+    const t = clock.getElapsedTime();
+    const rotMult = settings.autoRotate ? settings.speed : 0;
+
+    let audioRaw = 0;
+    if (audioAnalyser) {
+      audioAnalyser.getByteTimeDomainData(audioData);
+      let sumSquares = 0;
+      for (let i = 0; i < audioData.length; i++) {
+        const v = (audioData[i] - 128) / 128;
+        sumSquares += v * v;
+      }
+      const rms = Math.sqrt(sumSquares / audioData.length);
+      audioRaw = Math.min(1, rms * 7.5);
+    }
+    const envRate = audioRaw > audioLevel ? 0.85 : 0.35;
+    audioLevel += (audioRaw - audioLevel) * envRate;
+
+    outerShell.rotation.y += 0.0015 * rotMult;
+    outerShell.rotation.x = Math.sin(t * 0.08 * Math.max(rotMult, 0.25)) * 0.05;
+    outerShell.scale.setScalar(1);
+    panelGroup.scale.setScalar(1);
+
+    panelGroup.rotation.y += 0.0018 * rotMult;
+    panelGroup.rotation.x = Math.sin(t * 0.08 + 0.5) * 0.04;
+
+    shell2.rotation.y -= 0.001 * rotMult;
+    shell2.rotation.z = Math.sin(t * 0.12) * 0.03;
+    shell2.scale.setScalar(1);
+
+    innerCore.rotation.y -= 0.005 * rotMult;
+    innerCore.rotation.z += 0.002 * rotMult;
+    innerCore.rotation.x = Math.cos(t * 0.1) * 0.08;
+
+    icoWire.rotation.x += 0.008 * Math.max(rotMult, 0.35);
+    icoWire.rotation.y += 0.012 * Math.max(rotMult, 0.35);
+
+    coreSphere.scale.setScalar(1);
+    coreSphereMat.opacity = 0.12;
+    glowSphere.scale.setScalar(1);
+    glowSphereMat.opacity = 0.03;
+    icoWire.scale.setScalar(1);
+    icoWireMat.opacity = 0.35;
+    orbGroup.scale.setScalar(settings.scale);
+
+    if (settings.showDebris) {
+      for (let i = 0; i < debris.length; i++) {
+        const d = debris[i];
+        const u = d.userData;
+        const a = t * u.speed * Math.max(settings.speed, 0.2) + u.phase;
+        d.position.set(
+          u.orbitR * Math.cos(a) * Math.cos(u.tiltX),
+          u.orbitR * Math.sin(u.tiltX) * Math.sin(a * 0.8) + Math.sin(a * 0.3 + u.tiltZ) * 0.2,
+          u.orbitR * Math.sin(a) * Math.cos(u.tiltZ),
+        );
+        d.rotation.x += 0.015;
+        d.rotation.z += 0.01;
+      }
+    }
+
+    if (settings.showText) {
+      for (let gIdx = 0; gIdx < driftGroups.length; gIdx++) {
+        const group = driftGroups[gIdx][0];
+        const mult = driftGroups[gIdx][1];
+        const children = group.children;
+        for (let k = 0; k < children.length; k++) {
+          const sp = children[k];
+          const u = sp.userData;
+          u.theta += u.speed * mult * (settings.autoRotate ? settings.speed : 0.15);
+          sp.position.set(
+            u.r * Math.sin(u.phi) * Math.cos(u.theta),
+            u.r * Math.cos(u.phi),
+            u.r * Math.sin(u.phi) * Math.sin(u.theta),
+          );
+
+          const remaining = u.glowUntil - t;
+          if (remaining > 0) {
+            if (!u.isGlowing) {
+              sp.material.map = u.glowTex;
+              sp.material.needsUpdate = true;
+              u.isGlowing = true;
+            }
+            const glowT = Math.min(1, remaining / GLOW_DURATION);
+            const pulse = 1 + glowT * 2.2;
+            sp.scale.set(u.baseScaleX * pulse, u.baseScaleY * pulse, 1);
+            sp.material.opacity = Math.min(1, 0.7 + glowT * 0.9);
+          } else if (u.isGlowing) {
+            sp.material.map = u.normalTex;
+            sp.material.needsUpdate = true;
+            sp.material.opacity = 0.6;
+            sp.scale.set(u.baseScaleX, u.baseScaleY, 1);
+            u.isGlowing = false;
+          }
+        }
+      }
+    }
+
+    const scanY1 = Math.sin(t * 0.4) * R1;
+    scanRing1.position.y = scanY1;
+    const scanS1 = Math.sqrt(Math.max(0, R1 * R1 - scanY1 * scanY1)) / R1;
+    scanRing1.scale.set(scanS1, scanS1, 1);
+    scanRing1.material.opacity = 0.14 * scanS1;
+
+    const scanY2 = Math.sin(t * 0.6 + 2) * R3;
+    scanRing2.position.y = scanY2;
+    const scanS2 = Math.sqrt(Math.max(0, R3 * R3 - scanY2 * scanY2)) / R3;
+    scanRing2.scale.set(scanS2, scanS2, 1);
+    scanRing2.material.opacity = 0.1 * scanS2;
+
+    dustPoints.rotation.y += 0.0002 * Math.max(rotMult, 0.25);
+
+    flickerTimer += 0.016;
+    if (flickerTimer > 0.1) {
+      flickerTimer = 0;
+      panelGroup.children.forEach((p) => {
+        if (Math.random() > 0.95) {
+          p.visible = !p.visible;
+        }
+      });
+    }
+
+    controls.update();
+    if (useComposer && composer) {
+      if (bloom) bloom.strength = settings.bloomStrength * (0.91 + Math.sin(t * 0.8) * 0.13);
+      if (chromaticPass) chromaticPass.uniforms.uTime.value = t;
+      try {
+        composer.render();
+      } catch (_) {
+        useComposer = false;
+        renderer.toneMappingExposure = 1.45;
+        renderer.render(scene, camera);
+      }
+    } else {
+      renderer.render(scene, camera);
+    }
+  }
+
+  function setPaused(nextPaused) {
+    paused = !!nextPaused;
+    if (paused) {
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+    } else if (!disposed && !rafId) {
+      clock.getDelta();
+      animate();
+    }
+  }
+
+  animate();
+  notifyReady();
+
+  function onResize() {
+    const w = Math.max(container.clientWidth || window.innerWidth || 1, 1);
+    const h = Math.max(container.clientHeight || window.innerHeight || 1, 1);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    if (composer) composer.setSize(w, h);
+  }
+  window.addEventListener("resize", onResize);
+  let resizeObserver = null;
+  if (typeof ResizeObserver === "function") {
+    resizeObserver = new ResizeObserver(() => onResize());
+    resizeObserver.observe(container);
+  }
+  requestAnimationFrame(onResize);
+
+  function dispose() {
+    disposed = true;
+    if (rafId) cancelAnimationFrame(rafId);
+    window.removeEventListener("resize", onResize);
+    if (resizeObserver) resizeObserver.disconnect();
+    controls.dispose();
+    scene.traverse((obj) => {
+      if (obj.geometry) obj.geometry.dispose();
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const mat of mats) {
+        if (!mat) continue;
+        mat.map?.dispose();
+        mat.dispose();
+      }
+    });
+    if (composer) composer.dispose();
+    renderer.dispose();
+    renderer.domElement.remove();
+  }
+
+  return {
+    rotateBy,
+    zoomBy,
+    zoomIn: () => zoomBy(0.65),
+    zoomOut: () => zoomBy(1.55),
+    resetView,
+    dispose,
+    setAudioAnalyser,
+    triggerGlow,
+    applySettings,
+    setPaused,
+  };
+}
+
+const container = document.getElementById("orb-container");
+let api;
+try {
+  api = createOrbScene(container);
+} catch (_) {
+  try {
+    container.innerHTML = "";
+    api = createCanvasFallbackOrb(container);
+  } catch (err2) {
+    notifyError("Orb init error: " + (err2 && err2.message ? err2.message : err2));
+  }
+}
+
+window.orbApi = api;
+window.applyOrbSettings = (partial) => api?.applySettings(partial);
+window.setPaused = (p) => api?.setPaused(p);
+window.triggerStxText = (text) => {
+  if (!api || !text) return;
+  String(text)
+    .split(/\s+/)
+    .map((w) => w.replace(/[^A-Za-z0-9'\-]/g, ""))
+    .filter((w) => w.length >= 2)
+    .slice(0, 14)
+    .forEach((w) => api.triggerGlow(w));
+};
+
+document.addEventListener("visibilitychange", () => {
+  api?.setPaused(document.hidden);
+});
+
+const micBtn = document.getElementById("mic-btn");
+const micStatus = document.getElementById("mic-status");
+const sttDisplay = document.getElementById("stt-display");
+
+let audioCtx = null;
+let micStream = null;
+let micActive = false;
+
+const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let sttFadeTimer = null;
+
+function updateSttDisplay(event) {
+  let finalText = "";
+  let interimText = "";
+  for (let i = event.resultIndex; i < event.results.length; i++) {
+    const result = event.results[i];
+    if (result.isFinal) {
+      finalText += result[0].transcript;
+    } else {
+      interimText += result[0].transcript;
+    }
+  }
+  if (!finalText && !interimText) return;
+
+  sttDisplay.textContent = "";
+  if (finalText) {
+    const f = document.createElement("span");
+    f.className = "final";
+    f.textContent = finalText.trim();
+    sttDisplay.appendChild(f);
+  }
+  if (interimText) {
+    if (finalText) sttDisplay.appendChild(document.createTextNode(" "));
+    const i = document.createElement("span");
+    i.className = "interim";
+    i.textContent = interimText.trim();
+    sttDisplay.appendChild(i);
+  }
+  sttDisplay.classList.add("visible");
+
+  clearTimeout(sttFadeTimer);
+  sttFadeTimer = setTimeout(() => sttDisplay.classList.remove("visible"), 3000);
+}
+
+function startSpeechGlow() {
+  if (!SpeechRecognitionAPI) return;
+  recognition = new SpeechRecognitionAPI();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = "en-US";
+  recognition.onresult = (event) => {
+    updateSttDisplay(event);
+    const result = event.results[event.results.length - 1];
+    window.triggerStxText(result[0].transcript);
+  };
+  recognition.onerror = () => {};
+  recognition.onend = () => {
+    if (micActive) recognition.start();
+  };
+  recognition.start();
+}
+
+function stopSpeechGlow() {
+  if (recognition) {
+    recognition.onend = null;
+    recognition.stop();
+    recognition = null;
+  }
+  clearTimeout(sttFadeTimer);
+  sttDisplay.classList.remove("visible");
+  sttDisplay.textContent = "";
+}
+
+async function enableMic() {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioCtx.createMediaStreamSource(micStream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 128;
+    analyser.smoothingTimeConstant = 0;
+    source.connect(analyser);
+
+    api?.setAudioAnalyser(analyser);
+    micActive = true;
+    micBtn.classList.add("active");
+    micStatus.textContent = "listening…";
+    startSpeechGlow();
+  } catch (_) {
+    micStatus.textContent = "mic access denied";
+  }
+}
+
+function disableMic() {
+  api?.setAudioAnalyser(null);
+  micActive = false;
+  stopSpeechGlow();
+  if (micStream) {
+    micStream.getTracks().forEach((tr) => tr.stop());
+    micStream = null;
+  }
+  if (audioCtx) {
+    audioCtx.close();
+    audioCtx = null;
+  }
+  micBtn.classList.remove("active");
+  micStatus.textContent = "tap to listen";
+}
+
+micBtn?.addEventListener("click", () => {
+  if (micActive) {
+    disableMic();
+  } else {
+    enableMic();
+  }
+});
+</script>
+</body>
+</html>

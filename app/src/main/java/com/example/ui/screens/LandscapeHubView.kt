@@ -35,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.Lock
@@ -109,8 +110,13 @@ fun LandscapeHubView(
     onSelectMode: (StarkMode) -> Unit,
     onLockDeck: () -> Unit,
     onToggleFullscreen: () -> Unit,
+    onOpenOrbStudio: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val latestAiText = state.aiMessages.lastOrNull()?.text.orEmpty()
+    val liveOrbTranscript = remember(voicePartial, latestAiText) {
+        if (voicePartial.isNotBlank()) voicePartial else latestAiText
+    }
     val dialItems = remember(hubModules) {
         hubModules.map { m ->
             DialWedgeItem(
@@ -285,6 +291,11 @@ fun LandscapeHubView(
                         onActivateIndex = { idx ->
                             onOpenModule(hubModules.getOrElse(idx) { HubModule.APPS })
                         },
+                        orbPreferences = state.preferences,
+                        activeTranscript = liveOrbTranscript,
+                        speechPulseTick = state.aiSpeechPulseTick,
+                        isSpeaking = state.aiSpeaking,
+                        isListening = voiceListening,
                         modifier = Modifier
                             .fillMaxSize()
                             .testTag("hub_rotary_dial")
@@ -361,6 +372,23 @@ fun LandscapeHubView(
                         )
                     }
 
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(HudAmber.copy(alpha = 0.16f))
+                            .border(1.dp, HudAmber.copy(alpha = 0.72f), RoundedCornerShape(4.dp))
+                            .clickable(onClick = onOpenOrbStudio)
+                            .testTag("hub_orb_studio_btn"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "Open 07 Orb Studio",
+                            tint = HudAmber,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                     Box(
                         modifier = Modifier
                             .size(34.dp)
@@ -660,14 +688,32 @@ fun DialPolarBlueprintStage(modifier: Modifier = Modifier) {
             style = Stroke(width = 1.2.dp.toPx(), cap = StrokeCap.Round)
         )
         drawArc(
-            color = HudAmber.copy(alpha = 0.18f),
+            color = HudAmber.copy(alpha = 0.24f),
             startAngle = outerOrbit + 180f,
-            sweepAngle = 42f,
+            sweepAngle = 48f,
             useCenter = false,
             topLeft = topLeft,
             size = arcSize,
-            style = Stroke(width = 1.2.dp.toPx(), cap = StrokeCap.Round)
+            style = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round)
         )
+
+        // Orbiting neural dust motes & Y-axis scan halo from stxark-ai.html
+        val phaseRad = Math.toRadians(outerOrbit.toDouble())
+        for (i in 0 until 16) {
+            val a = phaseRad * (if (i % 2 == 0) 1.0 else -0.75) + i * (PI / 8.0)
+            val orbitR = maxR * (0.98f + (i % 3) * 0.06f)
+            val px = cx + (orbitR * kotlin.math.cos(a)).toFloat()
+            val py = cy + (orbitR * kotlin.math.sin(a) * 0.86).toFloat()
+            drawCircle(
+                color = when (i % 3) {
+                    0 -> HudAmber.copy(alpha = 0.45f)
+                    1 -> HudCyan.copy(alpha = 0.40f)
+                    else -> HudCrimson.copy(alpha = 0.42f)
+                },
+                radius = if (i % 4 == 0) 2.2.dp.toPx() else 1.3.dp.toPx(),
+                center = Offset(px, py)
+            )
+        }
     }
 }
 

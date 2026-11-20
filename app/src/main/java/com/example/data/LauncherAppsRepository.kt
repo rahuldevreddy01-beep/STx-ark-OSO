@@ -1,6 +1,5 @@
 package com.example.data
 
-import android.app.ActivityOptions
 import android.app.role.RoleManager
 import android.content.ComponentName
 import android.content.Context
@@ -9,7 +8,6 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Rect
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
@@ -17,6 +15,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import com.example.hardware.MiuiFreeformLauncher
 import com.example.model.InstalledApp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -130,8 +129,7 @@ class LauncherAppsRepository(private val context: Context) {
     }
 
     /**
-     * Requests Android Freeform / MIUI Floating Window mode via ActivityOptions.
-     * Uses WINDOWING_MODE_FREEFORM (5) + centered Rect launch bounds + MIUI freeform flags.
+     * Requests MIUI/HyperOS Floating Window or AOSP Freeform Window mode with portrait bounds.
      */
     fun launchWindowed(app: InstalledApp): Boolean {
         if (app.packageName.isBlank()) return false
@@ -145,44 +143,12 @@ class LauncherAppsRepository(private val context: Context) {
                 context.packageManager.getLaunchIntentForPackage(app.packageName)
                     ?: return false
             }
-            intent.apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-                // MIUI / HyperOS floating window hints (safe extras)
-                putExtra("miui.intent.extra.OPEN_IN_FREEFORM", true)
-            }
-
-            // Apply MIUI internal MiuiIntent freeform bit (0x00000800) only on Xiaomi/MIUI/HyperOS devices
-            val isXiaomi = Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true) ||
-                Build.BRAND.equals("Xiaomi", ignoreCase = true) ||
-                Build.BRAND.equals("Redmi", ignoreCase = true) ||
-                Build.BRAND.equals("POCO", ignoreCase = true)
-            if (isXiaomi) {
-                intent.addFlags(0x00000800)
-            }
-
-            val dm = context.resources.displayMetrics
-            val w = (minOf(dm.widthPixels, dm.heightPixels) * 0.78f).toInt().coerceAtLeast(360)
-            val h = (dm.heightPixels * 0.72f).toInt().coerceAtLeast(420)
-            val left = ((dm.widthPixels - w) / 2).coerceAtLeast(0)
-            val top = ((dm.heightPixels - h) / 2).coerceAtLeast(0)
-            val bounds = Rect(left, top, left + w, top + h)
-
-            val options = ActivityOptions.makeBasic().apply {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    setLaunchBounds(bounds)
-                }
-                // Request WINDOWING_MODE_FREEFORM (5) on AOSP & MIUI Android 10–15
-                runCatching {
-                    val method = ActivityOptions::class.java.getMethod(
-                        "setLaunchWindowingMode",
-                        Int::class.javaPrimitiveType
-                    )
-                    method.invoke(this, WINDOWING_MODE_FREEFORM)
-                }
-            }
-
-            context.startActivity(intent, options.toBundle())
-            true
+            MiuiFreeformLauncher.startFloatingActivity(
+                context = context,
+                intent = intent,
+                targetPackage = app.packageName,
+                allowMultipleTask = false
+            )
         }.getOrElse {
             launchFullscreen(app)
         }
@@ -192,9 +158,13 @@ class LauncherAppsRepository(private val context: Context) {
         runCatching {
             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = Uri.fromParts("package", packageName, null)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            context.startActivity(intent)
+            MiuiFreeformLauncher.startFloatingActivity(
+                context = context,
+                intent = intent,
+                targetPackage = "com.android.settings",
+                allowMultipleTask = false
+            )
         }
     }
 
@@ -278,7 +248,4 @@ class LauncherAppsRepository(private val context: Context) {
         }
     }
 
-    companion object {
-        private const val WINDOWING_MODE_FREEFORM = 5
-    }
 }

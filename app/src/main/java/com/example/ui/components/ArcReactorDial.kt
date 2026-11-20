@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.DialWedgeItem
+import com.example.model.LauncherPreferences
 import com.example.ui.theme.HudAmber
 import com.example.ui.theme.HudCrimson
 import com.example.ui.theme.HudCyan
@@ -101,7 +102,12 @@ fun ArcReactorFullDial(
     onSelectIndex: (Int) -> Unit,
     onActivateIndex: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    compactMode: Boolean = false
+    compactMode: Boolean = false,
+    orbPreferences: LauncherPreferences = LauncherPreferences(),
+    activeTranscript: String = "",
+    speechPulseTick: Int = 0,
+    isSpeaking: Boolean = false,
+    isListening: Boolean = false
 ) {
     if (items.isEmpty()) return
     val haptic = LocalHapticFeedback.current
@@ -500,20 +506,58 @@ fun ArcReactorFullDial(
         }
 
         val coreDiameterDp = with(density) { (wedgeInnerR * 1.88f).toDp() }
-        ArcCoreSpinnerOverlay(
-            onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                currentOnActivate(currentSelectedIdx)
-            },
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .offset {
-                    val corePx = coreDiameterDp.roundToPx()
-                    IntOffset((cx - corePx / 2f).roundToInt(), (cy - corePx / 2f).roundToInt())
-                }
-                .size(coreDiameterDp)
-                .testTag("dial_center_orb_trigger")
-        )
+        if (orbPreferences.orbUseHtmlWebGl) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset {
+                        val corePx = coreDiameterDp.roundToPx()
+                        IntOffset((cx - corePx / 2f).roundToInt(), (cy - corePx / 2f).roundToInt())
+                    }
+                    .size(coreDiameterDp)
+                    .clip(CircleShape)
+                    .background(Color.Black)
+                    .border(
+                        width = 1.6.dp,
+                        brush = Brush.sweepGradient(
+                            colors = listOf(HudCyan, HudCrimson, HudAmber, HudCyan)
+                        ),
+                        shape = CircleShape
+                    )
+                    .clickable {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        currentOnActivate(currentSelectedIdx)
+                    }
+                    .testTag("dial_center_orb_trigger"),
+                contentAlignment = Alignment.Center
+            ) {
+                StxHtmlOrbView(
+                    preferences = orbPreferences,
+                    activeTranscript = activeTranscript,
+                    speechPulseTick = speechPulseTick,
+                    isSpeaking = isSpeaking,
+                    isListening = isListening,
+                    compactDialMode = true,
+                    interactiveTouch = false,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        } else {
+            ArcCoreSpinnerOverlay(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    currentOnActivate(currentSelectedIdx)
+                },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset {
+                        val corePx = coreDiameterDp.roundToPx()
+                        IntOffset((cx - corePx / 2f).roundToInt(), (cy - corePx / 2f).roundToInt())
+                    }
+                    .size(coreDiameterDp)
+                    .testTag("dial_center_orb_trigger")
+            )
+        }
 
         // Labels read bearingAngle inside GPU graphicsLayer{} (zero layout passes during 60/120fps drag)
         val labelBoxW = (radiusPx * 0.48f / density.density).dp.coerceIn(38.dp, 62.dp)
@@ -1240,149 +1284,34 @@ private fun ArcCoreSpinnerOverlay(
             }
         }
 
-        // Iconic 3D Precessing Plasma Gyroscope Ellipses + Mark VI Inverted Triangle + Biometric/Iris Core
-        val trianglePath = remember { Path() }
+        // Minimal sharp concentric reticle core (legacy oval orbs removed)
         Canvas(modifier = Modifier.fillMaxSize()) {
             if (size.minDimension <= 0f) return@Canvas
             val c = Offset(size.width / 2f, size.height / 2f)
-            val orbR = size.minDimension * 0.37f
-            val hazeRadius = (orbR * 1.18f).coerceAtLeast(1f)
-
-            // Inner glowing plasma ambient haze
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        HudIce.copy(alpha = 0.22f),
-                        HudCyan.copy(alpha = 0.16f),
-                        HudCrimson.copy(alpha = 0.10f),
-                        Color.Transparent
-                    ),
-                    center = c,
-                    radius = hazeRadius
-                ),
-                center = c,
-                radius = hazeRadius
-            )
-
-            // Iron Man 2 Mark VI Inverted-Triangle Palladium Core Frame (slow gyro precession)
-            val triR = orbR * 0.82f
-            val v1 = Offset(c.x - triR * 0.86f, c.y - triR * 0.48f)
-            val v2 = Offset(c.x + triR * 0.86f, c.y - triR * 0.48f)
-            val v3 = Offset(c.x, c.y + triR * 0.96f)
-            trianglePath.reset()
-            trianglePath.moveTo(v1.x, v1.y)
-            trianglePath.lineTo(v2.x, v2.y)
-            trianglePath.lineTo(v3.x, v3.y)
-            trianglePath.close()
-            withTransform({
-                rotate(degrees = sin(Math.toRadians(ring1Angle.toDouble())).toFloat() * 7f, pivot = c)
-            }) {
-                drawPath(
-                    path = trianglePath,
-                    color = HudCyan.copy(alpha = 0.26f),
-                    style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
-                )
-                drawPath(
-                    path = trianglePath,
-                    color = HudIce.copy(alpha = 0.88f),
-                    style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
-                )
-                drawCircle(color = HudCrimson, radius = 2.dp.toPx(), center = v1)
-                drawCircle(color = HudAmber, radius = 2.dp.toPx(), center = v2)
-                drawCircle(color = HudCyan, radius = 2.2.dp.toPx(), center = v3)
-            }
-
-            // 1) Precessing Electric Blue elliptical orbital loop
-            withTransform({
-                rotate(degrees = ring1Angle * 0.8f + 24f, pivot = c)
-                scale(scaleX = 1f, scaleY = 0.72f, pivot = c)
-            }) {
-                drawCircle(
-                    color = HudElectricBlue.copy(alpha = 0.28f),
-                    radius = orbR,
-                    center = c,
-                    style = Stroke(width = 4.5.dp.toPx())
-                )
-                drawCircle(
-                    color = HudCyan.copy(alpha = 0.90f),
-                    radius = orbR,
-                    center = c,
-                    style = Stroke(width = 1.6.dp.toPx())
-                )
-            }
-
-            // 2) Counter-precessing Crimson Red plasma ellipse
-            withTransform({
-                rotate(degrees = ring2Angle + 78f, pivot = c)
-                scale(scaleX = 0.74f, scaleY = 1f, pivot = c)
-            }) {
-                drawCircle(
-                    color = HudCrimson.copy(alpha = 0.30f),
-                    radius = orbR * 0.96f,
-                    center = c,
-                    style = Stroke(width = 4.5.dp.toPx())
-                )
-                drawCircle(
-                    color = HudCrimson.copy(alpha = 0.95f),
-                    radius = orbR * 0.96f,
-                    center = c,
-                    style = Stroke(width = 1.7.dp.toPx())
-                )
-            }
-
-            // 3) High-luminance Ice White / Cyan tilted core loop
-            withTransform({
-                rotate(degrees = ring1Angle * 1.35f - 40f, pivot = c)
-                scale(scaleX = 0.96f, scaleY = 0.68f, pivot = c)
-            }) {
-                drawCircle(
-                    color = HudCyan.copy(alpha = 0.26f),
-                    radius = orbR * 0.92f,
-                    center = c,
-                    style = Stroke(width = 4.dp.toPx())
-                )
-                drawCircle(
-                    color = HudIce.copy(alpha = 0.92f),
-                    radius = orbR * 0.92f,
-                    center = c,
-                    style = Stroke(width = 1.5.dp.toPx())
-                )
-            }
-
-            // Center glowing Iris / Biometric core reticle
-            val coreR = size.minDimension * 0.18f
+            val coreR = size.minDimension * 0.24f
             drawCircle(
                 color = Color(0xCC040A14),
                 radius = coreR,
                 center = c
             )
             drawCircle(
-                color = HudIce.copy(alpha = 0.80f),
+                color = HudCyan.copy(alpha = 0.72f),
                 radius = coreR,
                 center = c,
-                style = Stroke(width = 1.2.dp.toPx())
+                style = Stroke(width = 1.4.dp.toPx())
             )
             drawArc(
-                color = HudCyan.copy(alpha = 0.85f),
-                startAngle = -140f,
-                sweepAngle = 220f,
+                color = HudCrimson.copy(alpha = 0.85f),
+                startAngle = ring2Angle,
+                sweepAngle = 140f,
                 useCenter = false,
                 topLeft = Offset(c.x - coreR * 0.65f, c.y - coreR * 0.65f),
                 size = Size(coreR * 1.3f, coreR * 1.3f),
-                style = Stroke(width = 1.2.dp.toPx(), cap = StrokeCap.Round)
-            )
-            drawArc(
-                color = HudCrimson.copy(alpha = 0.9f),
-                startAngle = 30f,
-                sweepAngle = 150f,
-                useCenter = false,
-                topLeft = Offset(c.x - coreR * 0.36f, c.y - coreR * 0.36f),
-                size = Size(coreR * 0.72f, coreR * 0.72f),
-                style = Stroke(width = 1.2.dp.toPx(), cap = StrokeCap.Round)
+                style = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round)
             )
             drawCircle(
                 color = HudIce,
-                radius = (coreR * 0.15f).coerceAtLeast(2f),
+                radius = (coreR * 0.16f).coerceAtLeast(2f),
                 center = c
             )
         }

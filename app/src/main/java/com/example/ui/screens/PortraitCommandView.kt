@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.FlashlightOn
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -52,6 +54,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -61,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.hardware.LauncherPermissionManager
 import com.example.model.DialWedgeItem
 import com.example.model.HubModule
 import com.example.model.InstalledApp
@@ -107,9 +111,19 @@ fun PortraitCommandView(
     onSelectMode: (StarkMode) -> Unit,
     onLockDeck: () -> Unit,
     onToggleFullscreen: () -> Unit,
+    onOpenOrbStudio: () -> Unit = {},
+    onOpenPermissions: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val missingPermCount = remember(state.telemetry, state.mode) {
+        LauncherPermissionManager.missingRuntimePermissions(context).size
+    }
     var commandText by remember { mutableStateOf("") }
+    val latestAiText = state.aiMessages.lastOrNull()?.text.orEmpty()
+    val liveOrbTranscript = remember(voicePartial, latestAiText) {
+        if (voicePartial.isNotBlank()) voicePartial else latestAiText
+    }
     val dialItems = remember(hubModules) {
         hubModules.map { m ->
             DialWedgeItem(
@@ -312,6 +326,11 @@ fun PortraitCommandView(
                             onOpenModule(hubModules.getOrElse(idx) { HubModule.APPS })
                         },
                         compactMode = true,
+                        orbPreferences = state.preferences,
+                        activeTranscript = liveOrbTranscript,
+                        speechPulseTick = state.aiSpeechPulseTick,
+                        isSpeaking = state.aiSpeaking,
+                        isListening = voiceListening,
                         modifier = Modifier
                             .fillMaxSize()
                             .testTag("portrait_rotary_dial")
@@ -618,6 +637,67 @@ fun PortraitCommandView(
                         modifier = Modifier.weight(1f),
                         onClick = onToggleMute
                     )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 38.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(HudAmber.copy(alpha = 0.14f))
+                            .border(1.dp, HudAmber.copy(alpha = 0.72f), RoundedCornerShape(4.dp))
+                            .clickable(onClick = onOpenOrbStudio)
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .testTag("portrait_orb_studio_btn"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "Customize 3D Orb",
+                            tint = HudAmber,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = "ORB STUDIO & FX",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.5.sp,
+                            color = HudIce,
+                            maxLines = 1
+                        )
+                    }
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 38.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (missingPermCount > 0) HudCrimsonSubtle else HudCyanSubtle)
+                            .border(1.dp, if (missingPermCount > 0) HudCrimson else HudCyanBorder, RoundedCornerShape(4.dp))
+                            .clickable(onClick = onOpenPermissions)
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .testTag("portrait_permissions_btn"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.VerifiedUser,
+                            contentDescription = "Launcher Permissions",
+                            tint = if (missingPermCount > 0) HudCrimson else HudCyan,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = if (missingPermCount > 0) "PERMS ($missingPermCount MISSING)" else "PERMS ARMED",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.5.sp,
+                            color = HudIce,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
         }

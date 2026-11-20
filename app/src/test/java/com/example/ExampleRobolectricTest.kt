@@ -17,6 +17,7 @@ import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeUp
@@ -25,11 +26,16 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.LauncherAppsRepository
 import com.example.data.LocalStxCommandRouter
 import com.example.data.StxAction
+import com.example.hardware.DeviceTelemetryManager
+import com.example.hardware.LauncherPermissionManager
+import com.example.hardware.MiuiFreeformLauncher
+import com.example.hardware.VoiceCommandManager
 import com.example.model.AppLaunchMode
 import com.example.model.DeviceTelemetry
 import com.example.model.DialWedgeItem
 import com.example.model.HubModule
 import com.example.model.InstalledApp
+import com.example.model.SettingsSection
 import com.example.model.StarkMode
 import com.example.security.PasscodeCrypto
 import com.example.ui.StarkUiState
@@ -41,10 +47,14 @@ import com.example.ui.components.FloatingStxAiOverlay
 import com.example.ui.components.HologramBitmapProcessor
 import com.example.ui.components.HolographicCardCarousel
 import com.example.ui.components.StxHologramGirlCore
+import com.example.ui.screens.CameraScreen
 import com.example.ui.screens.HalfDialWorkspaceView
+import com.example.ui.screens.HealthScreen
 import com.example.ui.screens.LandscapeHubView
 import com.example.ui.screens.PortraitCommandView
+import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.StxAiView
+import com.example.ui.screens.WifiScreen
 import com.example.ui.theme.StarkOsTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -1006,6 +1016,252 @@ class ExampleRobolectricTest {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("floating_stx_overlay").assertIsDisplayed()
         composeTestRule.onNodeWithTag("floating_stx_bot_orb").assertIsDisplayed()
+    }
+
+    @Test
+    fun `miui freeform bounds keep portrait aspect ratio and orientation morph preserves active workspaces`() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val bounds = MiuiFreeformLauncher.computeFloatingWindowBounds(app)
+        assertTrue("Expected positive floating width", bounds.width() >= 320)
+        assertTrue("Expected portrait floating bounds height >= width", bounds.height() >= bounds.width())
+        MiuiFreeformLauncher.buildFloatingOptions(app, "com.android.settings")
+
+        val vm = StarkViewModel(app)
+        // Switching between portrait and landscape morphs home modes only
+        vm.setMode(StarkMode.PORTRAIT)
+        vm.onConfigurationChanged(isLandscape = true)
+        assertEquals(StarkMode.HUB, vm.uiState.value.mode)
+        vm.onConfigurationChanged(isLandscape = false)
+        assertEquals(StarkMode.PORTRAIT, vm.uiState.value.mode)
+
+        // Active HALF_DIAL workspace is preserved across orientation changes
+        vm.openModule(HubModule.WIFI)
+        assertEquals(StarkMode.HALF_DIAL, vm.uiState.value.mode)
+        vm.onConfigurationChanged(isLandscape = true)
+        assertEquals(StarkMode.HALF_DIAL, vm.uiState.value.mode)
+        vm.onConfigurationChanged(isLandscape = false)
+        assertEquals(StarkMode.HALF_DIAL, vm.uiState.value.mode)
+
+        // Sensor foreground/background gating runs safely
+        val tm = DeviceTelemetryManager(app)
+        tm.setSensorActivityState(foreground = false, highRateNeeded = false)
+        tm.setSensorActivityState(foreground = true, highRateNeeded = true)
+        tm.stopMonitoring()
+    }
+
+    @Test
+    fun `stx ai renders exact html 3d orb by default and switches cleanly to holo girl`() {
+        var useHtmlOrb by androidx.compose.runtime.mutableStateOf(true)
+
+        composeTestRule.setContent {
+            val prefs = com.example.model.LauncherPreferences(orbUseHtmlWebGl = useHtmlOrb)
+            StarkOsTheme {
+                Box(modifier = Modifier.size(width = 410.dp, height = 820.dp)) {
+                    StxAiView(
+                        state = StarkUiState(
+                            mode = StarkMode.STX_AI,
+                            preferences = prefs,
+                            aiSpeaking = true
+                        ),
+                        voiceListening = false,
+                        voicePartial = "arc reactor online",
+                        voiceRms = 0.5f,
+                        onVoiceCommand = {},
+                        onSendPrompt = {},
+                        onToggleOrbMode = { useHtmlOrb = it },
+                        onBack = {}
+                    )
+                }
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("stx_hologram_core").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("stx_html_orb_view", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("stx_orb_mode_chip").assertIsDisplayed().performClick()
+        composeTestRule.waitForIdle()
+        assertFalse(useHtmlOrb)
+        composeTestRule.onNodeWithTag("stx_hologram_core").assertIsDisplayed()
+    }
+
+    @Test
+    fun `settings orb studio and permissions deck render controls cleanly and telemetry handles denied permissions`() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val allPerms = LauncherPermissionManager.allRuntimePermissionsForSdk()
+        assertTrue(allPerms.contains(android.Manifest.permission.CAMERA))
+        assertTrue(allPerms.contains(android.Manifest.permission.RECORD_AUDIO))
+        assertTrue(allPerms.contains(android.Manifest.permission.ACCESS_FINE_LOCATION))
+        assertFalse(allPerms.contains("android.permission.READ_EXTERNAL_STORAGE"))
+        assertFalse(allPerms.contains("android.permission.READ_MEDIA_IMAGES"))
+        val statuses = LauncherPermissionManager.getPermissionStatuses(app)
+        assertEquals(allPerms.toSet(), statuses.flatMap { it.permissions.toList() }.toSet())
+
+        // Ensure voice and telemetry managers never throw when runtime permissions are denied
+        val tm = DeviceTelemetryManager(app)
+        tm.refreshSystemSnapshot()
+        tm.refreshCameraCapabilities()
+        tm.stopMonitoring()
+        val voiceMgr = VoiceCommandManager(
+            context = app,
+            onFinalTranscript = {},
+            onStatusMessage = {},
+            onFallbackIntentNeeded = {}
+        )
+        voiceMgr.startListening()
+        voiceMgr.destroy()
+
+        var resetCalled = false
+        var openedStx = false
+        var selectedSectionIdx by mutableIntStateOf(SettingsSection.ORB_STUDIO.ordinal)
+
+        composeTestRule.setContent {
+            StarkOsTheme {
+                Box(modifier = Modifier.size(width = 700.dp, height = 520.dp)) {
+                    SettingsScreen(
+                        state = StarkUiState(),
+                        focusedIndex = selectedSectionIdx,
+                        onSelectSection = { selectedSectionIdx = it },
+                        onOpenDefaultLauncher = {},
+                        onReloadApps = {},
+                        onSetCallsign = {},
+                        onToggleSfx = {},
+                        onToggleMute = {},
+                        onToggleFullscreen = {},
+                        onToggleKeepAwake = {},
+                        onToggleAutoMorph = {},
+                        onToggleEdgeColor = {},
+                        onToggleSystemFloatingAi = {},
+                        onPermissionsUpdated = {},
+                        onSetLockCoverEnabled = {},
+                        onSetAutoLockOnScreenOff = {},
+                        onSetBiometricUnlockEnabled = {},
+                        onSetUseOsPhysicalLock = {},
+                        onSavePasscode = { _, _ -> },
+                        onClearPasscode = {},
+                        onSetLockWidgets = { _, _, _ -> },
+                        onSetLockHeadline = {},
+                        onEngageLockNow = {},
+                        onResetOrbDefaults = { resetCalled = true },
+                        onOpenStxAiCore = { openedStx = true }
+                    )
+                }
+                Box(modifier = Modifier.size(0.dp)) {
+                    HealthScreen(
+                        state = StarkUiState(),
+                        focusedIndex = 0,
+                        onSelectIndex = {},
+                        onPermissionGranted = {}
+                    )
+                    WifiScreen(
+                        state = StarkUiState(),
+                        focusedIndex = 0,
+                        onSelectIndex = {},
+                        onOpenWifiPanel = {},
+                        onOpenBluetoothPanel = {}
+                    )
+                    CameraScreen(
+                        state = StarkUiState(),
+                        focusedIndex = 0,
+                        onSelectIndex = {},
+                        onToggleTorch = {},
+                        onFlipLens = {},
+                        onZoomChange = {}
+                    )
+                }
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("settings_tab_orb_studio").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("settings_reset_orb_btn").performScrollTo().assertIsDisplayed().performClick()
+        assertTrue(resetCalled)
+        composeTestRule.onNodeWithTag("settings_open_stx_orb_btn").performScrollTo().assertIsDisplayed().performClick()
+        assertTrue(openedStx)
+
+        composeTestRule.onNodeWithTag("settings_tab_permissions").assertIsDisplayed().performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(com.example.model.SettingsSection.PERMISSIONS.ordinal, selectedSectionIdx)
+        composeTestRule.onNodeWithTag("settings_grant_all_perms_btn").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("settings_open_app_perms_btn").performScrollTo().assertIsDisplayed()
+
+        // Verify all offline Three.js ES module assets required by stxark-ai.html open cleanly with relative imports
+        val requiredAssets = listOf(
+            "stxark-ai.html",
+            "three/build/three.module.js",
+            "three/examples/jsm/controls/OrbitControls.js",
+            "three/examples/jsm/postprocessing/EffectComposer.js",
+            "three/examples/jsm/postprocessing/RenderPass.js",
+            "three/examples/jsm/postprocessing/UnrealBloomPass.js",
+            "three/examples/jsm/postprocessing/ShaderPass.js",
+            "three/examples/jsm/postprocessing/MaskPass.js",
+            "three/examples/jsm/postprocessing/Pass.js",
+            "three/examples/jsm/shaders/CopyShader.js",
+            "three/examples/jsm/shaders/LuminosityHighPassShader.js"
+        )
+        requiredAssets.forEach { assetPath ->
+            val content = app.assets.open(assetPath).bufferedReader().use { it.readText() }
+            assertTrue("Asset $assetPath should be non-empty", content.isNotBlank())
+            assertFalse("Asset $assetPath must not use bare 'three' import", content.contains("from 'three'"))
+        }
+    }
+
+    @Test
+    fun `homescreen dial embeds html 3d orb and portrait exposes orb studio and permissions buttons`() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val vm = StarkViewModel(app)
+        vm.openSettingsSection(com.example.model.SettingsSection.ORB_STUDIO)
+        assertEquals(StarkMode.HALF_DIAL, vm.uiState.value.mode)
+        assertEquals(HubModule.SETTINGS, vm.uiState.value.activeModule)
+        assertEquals(com.example.model.SettingsSection.ORB_STUDIO.ordinal, vm.uiState.value.subItemIndex)
+
+        var activatedFromCenter = false
+        var openedOrbStudio = false
+        var openedPermissions = false
+
+        composeTestRule.setContent {
+            StarkOsTheme {
+                Box(modifier = Modifier.size(width = 410.dp, height = 900.dp)) {
+                    com.example.ui.screens.PortraitCommandView(
+                        state = StarkUiState(
+                            mode = StarkMode.PORTRAIT,
+                            preferences = com.example.model.LauncherPreferences(orbUseHtmlWebGl = true)
+                        ),
+                        hubModules = HubModule.entries,
+                        voiceListening = false,
+                        voicePartial = "",
+                        onSelectHubIndex = {},
+                        onOpenModule = { activatedFromCenter = true },
+                        onLaunchAppFullscreen = {},
+                        onAskStxAi = {},
+                        onVoiceCommand = {},
+                        onToggleWifi = {},
+                        onToggleBluetooth = {},
+                        onToggleFlash = {},
+                        onToggleLock = {},
+                        onSync = {},
+                        onToggleMute = {},
+                        onFoldRotate = {},
+                        onSelectMode = {},
+                        onLockDeck = {},
+                        onToggleFullscreen = {},
+                        onOpenOrbStudio = { openedOrbStudio = true },
+                        onOpenPermissions = { openedPermissions = true }
+                    )
+                }
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("dial_center_orb_trigger").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("stx_html_orb_view", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("dial_center_orb_trigger").performClick()
+        assertTrue(activatedFromCenter)
+
+        composeTestRule.onNodeWithTag("portrait_orb_studio_btn").performScrollTo().assertIsDisplayed().performClick()
+        assertTrue(openedOrbStudio)
+
+        composeTestRule.onNodeWithTag("portrait_permissions_btn").performScrollTo().assertIsDisplayed().performClick()
+        assertTrue(openedPermissions)
     }
 }
 

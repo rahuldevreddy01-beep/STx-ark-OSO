@@ -54,6 +54,14 @@ class VoiceCommandManager(
         if (destroyed) return
         mainHandler.post {
             if (destroyed) return@post
+            if (!LauncherPermissionManager.hasAudioPermission(context)) {
+                _voiceState.value = VoiceUiState(
+                    isListening = false,
+                    lastError = "GRANT MIC PERMISSION"
+                )
+                onStatusMessage("GRANT MICROPHONE PERMISSION")
+                return@post
+            }
             val sessionId = sessionCounter.incrementAndGet()
 
             val available = runCatching {

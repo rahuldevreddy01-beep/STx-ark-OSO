@@ -105,6 +105,15 @@ fun HalfDialWorkspaceView(
     onSetLockWidgets: (Boolean?, Boolean?, Boolean?) -> Unit,
     onSetLockHeadline: (String) -> Unit,
     onEngageLockNow: () -> Unit,
+    onToggleOrbUseHtml: (Boolean) -> Unit = {},
+    onOrbRotationSpeedChange: (Float) -> Unit = {},
+    onOrbBloomStrengthChange: (Float) -> Unit = {},
+    onOrbScaleChange: (Float) -> Unit = {},
+    onToggleOrbAutoRotate: (Boolean) -> Unit = {},
+    onToggleOrbShowTextNodes: (Boolean) -> Unit = {},
+    onToggleOrbShowDebris: (Boolean) -> Unit = {},
+    onToggleOrbSpeechGlowReactive: (Boolean) -> Unit = {},
+    onResetOrbDefaults: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val activeDialIndex = state.subItemIndex.coerceIn(0, (dialItems.size - 1).coerceAtLeast(0))
@@ -170,7 +179,17 @@ fun HalfDialWorkspaceView(
                     onClearPasscode = onClearPasscode,
                     onSetLockWidgets = onSetLockWidgets,
                     onSetLockHeadline = onSetLockHeadline,
-                    onEngageLockNow = onEngageLockNow
+                    onEngageLockNow = onEngageLockNow,
+                    onToggleOrbUseHtml = onToggleOrbUseHtml,
+                    onOrbRotationSpeedChange = onOrbRotationSpeedChange,
+                    onOrbBloomStrengthChange = onOrbBloomStrengthChange,
+                    onOrbScaleChange = onOrbScaleChange,
+                    onToggleOrbAutoRotate = onToggleOrbAutoRotate,
+                    onToggleOrbShowTextNodes = onToggleOrbShowTextNodes,
+                    onToggleOrbShowDebris = onToggleOrbShowDebris,
+                    onToggleOrbSpeechGlowReactive = onToggleOrbSpeechGlowReactive,
+                    onResetOrbDefaults = onResetOrbDefaults,
+                    onOpenStxAiCore = { onOpenModule(HubModule.STX_AI) }
                 )
                 HubModule.HEALTH -> HealthScreen(
                     state = state,
@@ -183,7 +202,8 @@ fun HalfDialWorkspaceView(
                     focusedIndex = activeDialIndex,
                     onSelectIndex = { idx -> onSelectSubIndex(idx, dialItems.size) },
                     onOpenWifiPanel = onOpenWifiPanel,
-                    onOpenBluetoothPanel = onOpenBluetoothPanel
+                    onOpenBluetoothPanel = onOpenBluetoothPanel,
+                    onPermissionsUpdated = onPermissionsUpdated
                 )
                 HubModule.CAMERA -> CameraScreen(
                     state = state,
@@ -191,7 +211,8 @@ fun HalfDialWorkspaceView(
                     onSelectIndex = { idx -> onSelectSubIndex(idx, dialItems.size) },
                     onToggleTorch = onToggleTorch,
                     onFlipLens = onFlipCameraLens,
-                    onZoomChange = onCameraZoomChange
+                    onZoomChange = onCameraZoomChange,
+                    onPermissionGranted = onPermissionsUpdated
                 )
                 HubModule.VAULT -> VaultScreen(
                     state = state,
@@ -207,7 +228,7 @@ fun HalfDialWorkspaceView(
                     focusedIndex = activeDialIndex,
                     onSelectIndex = { idx -> onSelectSubIndex(idx, dialItems.size) },
                     onQueryChange = onSearchQueryChange,
-                    onLaunchFullscreen = onLaunchFullscreen,
+                    onLaunchFullscreen = onLaunchWithLeftDialMode,
                     onWebSearch = onWebSearch,
                     onAskStxAi = onAskStxAi
                 )
@@ -218,7 +239,7 @@ fun HalfDialWorkspaceView(
                     onOpenApps = { onOpenModule(HubModule.APPS) },
                     onOpenSettings = { onOpenModule(HubModule.SETTINGS) },
                     onOpenStxAi = { onOpenModule(HubModule.STX_AI) },
-                    onLaunchApp = onLaunchFullscreen
+                    onLaunchApp = onLaunchWithLeftDialMode
                 )
                 HubModule.APPS -> Unit
             }

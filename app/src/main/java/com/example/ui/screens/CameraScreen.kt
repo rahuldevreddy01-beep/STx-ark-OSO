@@ -54,7 +54,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.hardware.LauncherPermissionManager
 import com.example.ui.StarkUiState
 import com.example.ui.components.CarouselSpecRow
 import com.example.ui.components.HolographicCardCarousel
@@ -89,19 +92,33 @@ fun CameraScreen(
     onToggleTorch: () -> Unit,
     onFlipLens: () -> Unit,
     onZoomChange: (Float) -> Unit,
+    onPermissionGranted: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var hasCameraPerm by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                PackageManager.PERMISSION_GRANTED
-        )
+        mutableStateOf(LauncherPermissionManager.hasCameraPermission(context))
+    }
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val nowGranted = LauncherPermissionManager.hasCameraPermission(context)
+                val changed = !hasCameraPerm && nowGranted
+                hasCameraPerm = nowGranted
+                if (changed) onPermissionGranted()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val permLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) { granted -> hasCameraPerm = granted }
+    ) { granted ->
+        val effective = granted || LauncherPermissionManager.hasCameraPermission(context)
+        hasCameraPerm = effective
+        if (effective) onPermissionGranted()
+    }
 
     var boundCamera by remember { mutableStateOf<Camera?>(null) }
 

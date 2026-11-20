@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -64,12 +65,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.model.LauncherPreferences
 import com.example.ui.StarkUiState
 import com.example.ui.components.HudBracketCard
 import com.example.ui.components.SciFiDualPulseBeam
 import com.example.ui.components.StxAvatarExpression
 import com.example.ui.components.StxEntrancePanel
 import com.example.ui.components.StxHologramGirlCore
+import com.example.ui.components.StxHtmlOrbView
 import com.example.ui.theme.HudAmber
 import com.example.ui.theme.HudCrimson
 import com.example.ui.theme.HudCrimsonBorder
@@ -98,12 +101,17 @@ fun StxAiView(
     onWarmUpSpeech: () -> Unit = {},
     onToggleTts: () -> Unit = {},
     onAvatarTap: () -> Unit = {},
+    onToggleOrbMode: ((Boolean) -> Unit)? = null,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val voiceOutputActive = state.ttsEnabled && !state.telemetry.audioMuted
+    val latestMessageText = state.aiMessages.lastOrNull()?.text.orEmpty()
+    val liveOrbTranscript = remember(voicePartial, latestMessageText) {
+        if (voicePartial.isNotBlank()) voicePartial else latestMessageText
+    }
 
     LaunchedEffect(Unit) {
         onWarmUpSpeech()
@@ -132,17 +140,20 @@ fun StxAiView(
                     slideFromX = -24f,
                     slideFromY = 0f,
                     modifier = Modifier
-                        .weight(0.39f)
+                        .weight(0.41f)
                         .fillMaxHeight()
                 ) {
                     StxHologramEmitterStage(
+                        preferences = state.preferences,
                         isSpeaking = state.aiSpeaking,
                         isListening = voiceListening,
                         isThinking = state.aiThinking,
                         ttsEnabled = voiceOutputActive,
                         speechPulseTick = state.aiSpeechPulseTick,
                         voiceRms = voiceRms,
+                        activeTranscript = liveOrbTranscript,
                         onAvatarTap = onAvatarTap,
+                        onToggleOrbMode = onToggleOrbMode,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -152,7 +163,7 @@ fun StxAiView(
                     slideFromX = 24f,
                     slideFromY = 0f,
                     modifier = Modifier
-                        .weight(0.61f)
+                        .weight(0.59f)
                         .fillMaxHeight()
                 ) {
                     StxConversationDeck(
@@ -186,16 +197,19 @@ fun StxAiView(
                     slideFromY = -18f,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(194.dp)
+                        .height(216.dp)
                 ) {
                     StxHologramEmitterStage(
+                        preferences = state.preferences,
                         isSpeaking = state.aiSpeaking,
                         isListening = voiceListening,
                         isThinking = state.aiThinking,
                         ttsEnabled = voiceOutputActive,
                         speechPulseTick = state.aiSpeechPulseTick,
                         voiceRms = voiceRms,
+                        activeTranscript = liveOrbTranscript,
                         onAvatarTap = onAvatarTap,
+                        onToggleOrbMode = onToggleOrbMode,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -232,17 +246,32 @@ fun StxAiView(
     }
 }
 
+private enum class StxCoreVisualMode(val label: String) {
+    EXACT_HTML_ORB("3D ORB"),
+    HOLO_GIRL("HOLO GIRL")
+}
+
 @Composable
 private fun StxHologramEmitterStage(
+    preferences: LauncherPreferences,
     isSpeaking: Boolean,
     isListening: Boolean,
     isThinking: Boolean,
     ttsEnabled: Boolean,
     speechPulseTick: Int,
     voiceRms: Float,
+    activeTranscript: String,
     onAvatarTap: () -> Unit,
+    onToggleOrbMode: ((Boolean) -> Unit)?,
     modifier: Modifier = Modifier
 ) {
+    var visualMode by remember(preferences.orbUseHtmlWebGl) {
+        mutableStateOf(
+            if (preferences.orbUseHtmlWebGl) StxCoreVisualMode.EXACT_HTML_ORB
+            else StxCoreVisualMode.HOLO_GIRL
+        )
+    }
+
     val expression = when {
         isSpeaking -> StxAvatarExpression.SPEAKING
         isListening -> StxAvatarExpression.LISTENING
@@ -263,22 +292,73 @@ private fun StxHologramEmitterStage(
             isSpeaking -> HudCyan
             else -> HudCyanBorder
         },
-        containerColor = Color(0x38031222),
+        containerColor = if (visualMode == StxCoreVisualMode.EXACT_HTML_ORB) {
+            Color(0xFF000000)
+        } else {
+            Color(0x38031222)
+        },
         contentPadding = 10.dp
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            statusColor.copy(alpha = if (isSpeaking || isListening) 0.14f else 0.08f),
-                            Color(0x22021426),
-                            Color.Transparent
+                .then(
+                    if (visualMode == StxCoreVisualMode.HOLO_GIRL) {
+                        Modifier.background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    statusColor.copy(alpha = if (isSpeaking || isListening) 0.14f else 0.08f),
+                                    Color(0x22021426),
+                                    Color.Transparent
+                                )
+                            )
                         )
-                    )
+                    } else {
+                        Modifier.background(Color.Black)
+                    }
                 )
         ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxSize()
+                    .padding(top = 18.dp, bottom = 18.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onAvatarTap
+                    )
+                    .testTag("stx_hologram_core"),
+                contentAlignment = Alignment.Center
+            ) {
+                when (visualMode) {
+                    StxCoreVisualMode.EXACT_HTML_ORB -> {
+                        StxHtmlOrbView(
+                            preferences = preferences,
+                            activeTranscript = activeTranscript,
+                            speechPulseTick = speechPulseTick,
+                            isSpeaking = isSpeaking,
+                            isListening = isListening,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(8.dp))
+                        )
+                    }
+
+                    StxCoreVisualMode.HOLO_GIRL -> {
+                        StxHologramGirlCore(
+                            isSpeaking = isSpeaking,
+                            isListening = isListening,
+                            isThinking = isThinking,
+                            speechPulseTick = speechPulseTick,
+                            voiceRms = voiceRms,
+                            onAvatarTap = onAvatarTap,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -294,38 +374,55 @@ private fun StxHologramEmitterStage(
                     color = HudIce,
                     maxLines = 1
                 )
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(statusColor.copy(alpha = 0.14f))
-                        .border(0.8.dp, statusColor.copy(alpha = 0.6f), RoundedCornerShape(3.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                        .testTag("stx_expression_badge")
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = expression.badge,
-                        fontFamily = JetBrainsMonoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 8.5.sp,
-                        color = statusColor,
-                        maxLines = 1
-                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(HudAmber.copy(alpha = 0.14f))
+                            .border(0.8.dp, HudAmber.copy(alpha = 0.65f), RoundedCornerShape(3.dp))
+                            .clickable {
+                                val next = if (visualMode == StxCoreVisualMode.EXACT_HTML_ORB) {
+                                    StxCoreVisualMode.HOLO_GIRL
+                                } else {
+                                    StxCoreVisualMode.EXACT_HTML_ORB
+                                }
+                                visualMode = next
+                                onToggleOrbMode?.invoke(next == StxCoreVisualMode.EXACT_HTML_ORB)
+                            }
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .testTag("stx_orb_mode_chip")
+                    ) {
+                        Text(
+                            text = visualMode.label,
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 8.sp,
+                            color = HudAmber,
+                            maxLines = 1
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(statusColor.copy(alpha = 0.14f))
+                            .border(0.8.dp, statusColor.copy(alpha = 0.6f), RoundedCornerShape(3.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .testTag("stx_expression_badge")
+                    ) {
+                        Text(
+                            text = expression.badge,
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 8.5.sp,
+                            color = statusColor,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
-
-            StxHologramGirlCore(
-                isSpeaking = isSpeaking,
-                isListening = isListening,
-                isThinking = isThinking,
-                speechPulseTick = speechPulseTick,
-                voiceRms = voiceRms,
-                onAvatarTap = onAvatarTap,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .fillMaxSize()
-                    .padding(top = 14.dp, bottom = 14.dp)
-                    .testTag("stx_hologram_core")
-            )
 
             Row(
                 modifier = Modifier
@@ -343,6 +440,7 @@ private fun StxHologramEmitterStage(
                 )
                 Text(
                     text = when {
+                        visualMode == StxCoreVisualMode.EXACT_HTML_ORB -> "EXACT 3D ORB · DRAG TO ORBIT"
                         isSpeaking -> "TAP TO STOP"
                         !ttsEnabled -> "VOICE MUTED"
                         else -> "TAP TO SPEAK"

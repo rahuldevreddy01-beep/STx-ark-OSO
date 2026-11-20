@@ -26,7 +26,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,7 +44,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.hardware.LauncherPermissionManager
 import com.example.ui.StarkUiState
 import com.example.ui.components.CarouselSpecRow
 import com.example.ui.components.HolographicCardCarousel
@@ -79,15 +86,28 @@ fun HealthScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val activityPermGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
-        ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.ACTIVITY_RECOGNITION
-        ) == PackageManager.PERMISSION_GRANTED
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var activityPermGranted by remember {
+        mutableStateOf(LauncherPermissionManager.hasActivityRecognitionPermission(context))
+    }
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val nowGranted = LauncherPermissionManager.hasActivityRecognitionPermission(context)
+                val changed = !activityPermGranted && nowGranted
+                activityPermGranted = nowGranted
+                if (changed) onPermissionGranted()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val stepLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) onPermissionGranted()
+        val effective = granted || LauncherPermissionManager.hasActivityRecognitionPermission(context)
+        activityPermGranted = effective
+        if (effective) onPermissionGranted()
     }
 
     val cards = remember(

@@ -1,21 +1,20 @@
 package com.example.ui.screens
 
-import android.Manifest
 import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,17 +29,24 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -59,7 +65,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.hardware.LauncherPermissionManager
 import com.example.model.SettingsSection
 import com.example.security.StarkDeviceAdminReceiver
 import com.example.ui.StarkUiState
@@ -67,6 +76,7 @@ import com.example.ui.components.CarouselSpecRow
 import com.example.ui.components.HolographicCardCarousel
 import com.example.ui.components.HolographicCardHeader
 import com.example.ui.components.HolographicSideCardFooter
+import com.example.ui.theme.HudAmber
 import com.example.ui.theme.HudCrimson
 import com.example.ui.theme.HudCrimsonBorder
 import com.example.ui.theme.HudCrimsonSubtle
@@ -106,39 +116,88 @@ fun SettingsScreen(
     onSetLockWidgets: (Boolean?, Boolean?, Boolean?) -> Unit,
     onSetLockHeadline: (String) -> Unit,
     onEngageLockNow: () -> Unit,
+    onToggleOrbUseHtml: (Boolean) -> Unit = {},
+    onOrbRotationSpeedChange: (Float) -> Unit = {},
+    onOrbBloomStrengthChange: (Float) -> Unit = {},
+    onOrbScaleChange: (Float) -> Unit = {},
+    onToggleOrbAutoRotate: (Boolean) -> Unit = {},
+    onToggleOrbShowTextNodes: (Boolean) -> Unit = {},
+    onToggleOrbShowDebris: (Boolean) -> Unit = {},
+    onToggleOrbSpeechGlowReactive: (Boolean) -> Unit = {},
+    onResetOrbDefaults: () -> Unit = {},
+    onOpenStxAiCore: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val sections = SettingsSection.entries
     val safeIndex = focusedIndex.coerceIn(0, sections.lastIndex)
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var callsignInput by remember(state.preferences.operatorCallsign) {
         mutableStateOf(state.preferences.operatorCallsign)
+    }
+    var permRefreshTick by remember { mutableIntStateOf(0) }
+    var permPromptStartedMs by remember { mutableLongStateOf(0L) }
+    var permSettingsHint by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                permRefreshTick++
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) {
+    ) { results ->
+        val elapsedMs = SystemClock.elapsedRealtime() - permPromptStartedMs
+        permRefreshTick++
         onPermissionsUpdated()
+        val anyGranted = results.values.any { it }
+        val stillMissing = LauncherPermissionManager.missingRuntimePermissions(context)
+        if (stillMissing.isEmpty()) {
+            permSettingsHint = null
+        } else if (!anyGranted && elapsedMs < 500L) {
+            permSettingsHint = "Android blocked popup (Don't ask again / MIUI) — opening App Settings."
+            LauncherPermissionManager.openAppPermissionSettings(context)
+        } else if (!anyGranted) {
+            permSettingsHint = "Permission denied — tap GRANT again or use APP PERMS."
+        } else {
+            permSettingsHint = null
+        }
     }
 
-    val canDrawOverlaysCached = remember(state.preferences.systemFloatingAiEnabled, state.mode) {
-        Settings.canDrawOverlays(context)
+    fun requestPermissionsOrSettings(perms: Array<String>) {
+        if (perms.isEmpty()) return
+        permPromptStartedMs = SystemClock.elapsedRealtime()
+        runCatching {
+            permissionLauncher.launch(perms)
+        }.onFailure {
+            LauncherPermissionManager.openAppPermissionSettings(context)
+        }
     }
 
+    val canDrawOverlaysCached = remember(state.preferences.systemFloatingAiEnabled, state.mode, permRefreshTick) {
+        LauncherPermissionManager.canDrawOverlays(context)
+    }
+
+    @OptIn(ExperimentalLayoutApi::class)
     Column(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // Clickable 01..06 Section Tabs synced bidirectionally with carousel & right half-dial
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        // Clickable 01..07 Section Tabs — FlowRow keeps 04 PERMISSIONS & 07 ORB STUDIO visible without scrolling
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             sections.forEachIndexed { idx, sec ->
                 val selected = idx == safeIndex
                 val isLockTab = sec == SettingsSection.LOCKSCREEN
+                val isOrbTab = sec == SettingsSection.ORB_STUDIO
                 Box(
                     modifier = Modifier
                         .heightIn(min = 36.dp)
@@ -146,6 +205,7 @@ fun SettingsScreen(
                         .background(
                             when {
                                 selected && isLockTab -> HudCrimsonSubtle
+                                selected && isOrbTab -> HudAmber.copy(alpha = 0.22f)
                                 selected -> HudCyanSubtle
                                 else -> Color(0x8806101B)
                             }
@@ -154,8 +214,10 @@ fun SettingsScreen(
                             1.dp,
                             when {
                                 selected && isLockTab -> HudCrimson
+                                selected && isOrbTab -> HudAmber
                                 selected -> HudCyan
                                 isLockTab -> HudCrimsonBorder
+                                isOrbTab -> HudAmber.copy(alpha = 0.45f)
                                 else -> HudDivider
                             },
                             RoundedCornerShape(4.dp)
@@ -170,7 +232,12 @@ fun SettingsScreen(
                         fontFamily = JetBrainsMonoFontFamily,
                         fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                         fontSize = 9.5.sp,
-                        color = if (selected) HudIce else if (isLockTab) HudCrimson else HudSilver
+                        color = when {
+                            selected -> HudIce
+                            isLockTab -> HudCrimson
+                            isOrbTab -> HudAmber
+                            else -> HudSilver
+                        }
                     )
                 }
             }
@@ -246,6 +313,29 @@ fun SettingsScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     SettingsActionButton(
+                                        label = "07 ORB STUDIO",
+                                        icon = Icons.Default.AutoAwesome,
+                                        crimson = false,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("settings_shortcut_orb_studio"),
+                                        onClick = { onSelectSection(sections.indexOf(SettingsSection.ORB_STUDIO)) }
+                                    )
+                                    SettingsActionButton(
+                                        label = "04 PERMISSIONS",
+                                        icon = Icons.Default.VerifiedUser,
+                                        crimson = false,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("settings_shortcut_permissions"),
+                                        onClick = { onSelectSection(sections.indexOf(SettingsSection.PERMISSIONS)) }
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    SettingsActionButton(
                                         label = "06 LOCKSCREEN",
                                         icon = Icons.Default.Security,
                                         crimson = false,
@@ -260,6 +350,12 @@ fun SettingsScreen(
                                         onClick = onEngageLockNow
                                     )
                                 }
+                                SettingsSwitchRow(
+                                    title = "3D HTML WEBGL ORB",
+                                    subtitle = "Render the exact interactive HTML Three.js orb inside Dial & STX AI",
+                                    checked = state.preferences.orbUseHtmlWebGl,
+                                    onCheckedChange = onToggleOrbUseHtml
+                                )
                                 CarouselSpecRow("INDEXED APPS", "${state.installedApps.size} PACKAGES", HudCyan, isCompactStage)
                                 CarouselSpecRow("PINNED ARC DOCK", "${state.preferences.pinnedPackages.size} PINNED", HudSilver, isCompactStage)
                             }
@@ -357,44 +453,150 @@ fun SettingsScreen(
                             }
 
                             SettingsSection.PERMISSIONS -> {
-                                val perms = buildList {
-                                    add(Manifest.permission.CAMERA to "CAMERA & LED TORCH")
-                                    add(Manifest.permission.RECORD_AUDIO to "VOICE COMMAND MIC")
-                                    add(Manifest.permission.ACCESS_COARSE_LOCATION to "WIFI SSID & RF LINK")
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                        add(Manifest.permission.ACTIVITY_RECOGNITION to "HARDWARE STEP COUNTER")
-                                    }
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                        add(Manifest.permission.BLUETOOTH_CONNECT to "BLUETOOTH TELEMETRY")
+                                val statuses = remember(permRefreshTick) {
+                                    LauncherPermissionManager.getPermissionStatuses(context)
+                                }
+                                val missingAll = remember(permRefreshTick) {
+                                    LauncherPermissionManager.missingRuntimePermissions(context)
+                                }
+                                val grantedCount = statuses.count { it.granted }
+                                val isDefaultHome = remember(permRefreshTick) {
+                                    LauncherPermissionManager.isDefaultHomeLauncher(context)
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "HARDWARE ACCESS ($grantedCount/${statuses.size})",
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 10.sp,
+                                        color = if (missingAll.isEmpty()) HudEmerald else HudAmber
+                                    )
+                                    Text(
+                                        text = if (missingAll.isEmpty()) "ALL ARMED" else "${missingAll.size} PENDING",
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontSize = 9.5.sp,
+                                        color = if (missingAll.isEmpty()) HudEmerald else HudCrimson
+                                    )
+                                }
+
+                                permSettingsHint?.let { hint ->
+                                    Text(
+                                        text = hint,
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontSize = 9.sp,
+                                        color = HudAmber
+                                    )
+                                }
+
+                                if (missingAll.isNotEmpty()) {
+                                    SettingsActionButton(
+                                        label = "GRANT ALL LAUNCHER PERMISSIONS",
+                                        icon = Icons.Default.VerifiedUser,
+                                        crimson = true,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("settings_grant_all_perms_btn"),
+                                        onClick = { requestPermissionsOrSettings(missingAll) }
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(HudEmerald.copy(alpha = 0.14f))
+                                            .border(1.dp, HudEmerald.copy(alpha = 0.55f), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                                            .testTag("settings_grant_all_perms_btn"),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "ALL HARDWARE PERMISSIONS GRANTED",
+                                            fontFamily = JetBrainsMonoFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 10.sp,
+                                            color = HudEmerald
+                                        )
                                     }
                                 }
-                                perms.forEach { (perm, title) ->
-                                    val granted = ContextCompat.checkSelfPermission(context, perm) ==
-                                        PackageManager.PERMISSION_GRANTED
+
+                                statuses.forEach { st ->
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(4.dp))
                                             .background(Color(0x5506101B))
-                                            .border(1.dp, if (granted) HudEmerald.copy(alpha = 0.5f) else HudCrimsonBorder, RoundedCornerShape(4.dp))
-                                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                                            .border(
+                                                1.dp,
+                                                if (st.granted) HudEmerald.copy(alpha = 0.5f) else HudCrimsonBorder,
+                                                RoundedCornerShape(4.dp)
+                                            )
+                                            .then(
+                                                if (!st.granted) {
+                                                    Modifier.clickable { requestPermissionsOrSettings(st.permissions) }
+                                                } else {
+                                                    Modifier
+                                                }
+                                            )
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(title, fontFamily = JetBrainsMonoFontFamily, fontSize = 10.5.sp, color = HudIce)
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text(
+                                                text = st.title,
+                                                fontFamily = JetBrainsMonoFontFamily,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 10.sp,
+                                                color = HudIce
+                                            )
+                                            Text(
+                                                text = st.description,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = HudSlate
+                                            )
+                                        }
                                         Text(
-                                            text = if (granted) "GRANTED" else "GRANT >",
+                                            text = if (st.granted) "GRANTED" else "GRANT >",
                                             fontFamily = JetBrainsMonoFontFamily,
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 10.5.sp,
-                                            color = if (granted) HudEmerald else HudCrimson,
-                                            modifier = if (!granted) {
-                                                Modifier.clickable { permissionLauncher.launch(arrayOf(perm)) }
-                                            } else {
-                                                Modifier
-                                            }
+                                            fontSize = 10.sp,
+                                            color = if (st.granted) HudEmerald else HudCrimson
                                         )
                                     }
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    SettingsActionButton(
+                                        label = if (canDrawOverlaysCached) "OVERLAY ARMED" else "GRANT OVERLAY",
+                                        icon = Icons.Default.Security,
+                                        crimson = !canDrawOverlaysCached,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { onToggleSystemFloatingAi(!canDrawOverlaysCached) }
+                                    )
+                                    SettingsActionButton(
+                                        label = "APP PERMS",
+                                        icon = Icons.Default.VerifiedUser,
+                                        crimson = false,
+                                        modifier = Modifier
+                                            .weight(0.9f)
+                                            .testTag("settings_open_app_perms_btn"),
+                                        onClick = { LauncherPermissionManager.openAppPermissionSettings(context) }
+                                    )
+                                    SettingsActionButton(
+                                        label = if (isDefaultHome) "HOME ACTIVE" else "SET HOME ROLE",
+                                        icon = Icons.Default.Home,
+                                        crimson = !isDefaultHome,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = onOpenDefaultLauncher
+                                    )
                                 }
                             }
 
@@ -651,6 +853,88 @@ fun SettingsScreen(
                                     onClick = onEngageLockNow
                                 )
                             }
+
+                            SettingsSection.ORB_STUDIO -> {
+                                SettingsSwitchRow(
+                                    title = "3D HTML THREE.JS ORB",
+                                    subtitle = "Use exact Three.js shader orb in STX AI (off = Holo Girl)",
+                                    checked = state.preferences.orbUseHtmlWebGl,
+                                    onCheckedChange = onToggleOrbUseHtml
+                                )
+                                SettingsSwitchRow(
+                                    title = "AUTO-ROTATE SPHERES",
+                                    subtitle = "Continuous multi-layer planetary wireframe spin",
+                                    checked = state.preferences.orbAutoRotate,
+                                    onCheckedChange = onToggleOrbAutoRotate
+                                )
+                                SettingsSwitchRow(
+                                    title = "SPEECH WORD NEURON GLOW",
+                                    subtitle = "Ignite crimson code words in 3D orb when speaking",
+                                    checked = state.preferences.orbSpeechGlowReactive,
+                                    onCheckedChange = onToggleOrbSpeechGlowReactive
+                                )
+                                SettingsSwitchRow(
+                                    title = "FLOATING CODE WORD NODES",
+                                    subtitle = "Render 1,700 orbiting neural lexicon sprites",
+                                    checked = state.preferences.orbShowTextNodes,
+                                    onCheckedChange = onToggleOrbShowTextNodes
+                                )
+                                SettingsSwitchRow(
+                                    title = "ORBITING DEBRIS FIELD",
+                                    subtitle = "Render 250 polyhedra and comet orbit trails",
+                                    checked = state.preferences.orbShowDebris,
+                                    onCheckedChange = onToggleOrbShowDebris
+                                )
+
+                                OrbSliderRow(
+                                    title = "ROTATION SPEED",
+                                    valueLabel = "${"%.2f".format(state.preferences.orbRotationSpeed)}X",
+                                    value = state.preferences.orbRotationSpeed,
+                                    valueRange = 0.2f..2.5f,
+                                    accentColor = HudAmber,
+                                    onValueChange = onOrbRotationSpeedChange
+                                )
+                                OrbSliderRow(
+                                    title = "BLOOM GLOW INTENSITY",
+                                    valueLabel = "${"%.2f".format(state.preferences.orbBloomStrength)}",
+                                    value = state.preferences.orbBloomStrength,
+                                    valueRange = 0.3f..2.0f,
+                                    accentColor = HudCyan,
+                                    onValueChange = onOrbBloomStrengthChange
+                                )
+                                OrbSliderRow(
+                                    title = "ORB GEOMETRY SCALE",
+                                    valueLabel = "${"%.2f".format(state.preferences.orbScale)}X",
+                                    value = state.preferences.orbScale,
+                                    valueRange = 0.65f..1.35f,
+                                    accentColor = HudCrimson,
+                                    onValueChange = onOrbScaleChange
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    SettingsActionButton(
+                                        label = "RESET DEFAULTS",
+                                        icon = Icons.Default.Refresh,
+                                        crimson = false,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("settings_reset_orb_btn"),
+                                        onClick = onResetOrbDefaults
+                                    )
+                                    SettingsActionButton(
+                                        label = "OPEN STX AI CORE",
+                                        icon = Icons.Default.AutoAwesome,
+                                        crimson = true,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("settings_open_stx_orb_btn"),
+                                        onClick = onOpenStxAiCore
+                                    )
+                                }
+                            }
                         }
                     }
                 } else {
@@ -738,6 +1022,56 @@ private fun SettingsActionButton(
             maxLines = 1,
             softWrap = false,
             overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun OrbSliderRow(
+    title: String,
+    valueLabel: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    accentColor: Color,
+    onValueChange: (Float) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color(0x5506101B))
+            .border(1.dp, HudDivider, RoundedCornerShape(4.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                fontFamily = JetBrainsMonoFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp,
+                color = HudIce
+            )
+            Text(
+                text = valueLabel,
+                fontFamily = JetBrainsMonoFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp,
+                color = accentColor
+            )
+        }
+        Slider(
+            value = value.coerceIn(valueRange.start, valueRange.endInclusive),
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+            colors = SliderDefaults.colors(
+                thumbColor = accentColor,
+                activeTrackColor = accentColor,
+                inactiveTrackColor = Color(0xFF0A1420)
+            )
         )
     }
 }

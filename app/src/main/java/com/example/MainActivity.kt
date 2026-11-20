@@ -12,6 +12,7 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.view.WindowManager
@@ -32,21 +33,35 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -55,6 +70,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,8 +80,11 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.hardware.LauncherPermissionManager
+import com.example.hardware.MiuiFreeformLauncher
 import com.example.hardware.VoiceCommandManager
 import com.example.model.HubModule
+import com.example.model.SettingsSection
 import com.example.model.StarkMode
 import com.example.security.configureAppCheck
 import com.example.service.StxFloatingAiService
@@ -74,6 +93,7 @@ import com.example.ui.StarkViewModel
 import com.example.ui.components.ArcReactorBootPulse
 import com.example.ui.components.EdgeFlashOverlay
 import com.example.ui.components.FloatingStxAiOverlay
+import com.example.ui.components.HudBracketCard
 import com.example.ui.components.LockscreenCoverOverlay
 import com.example.ui.components.StarkObsidianBackground
 import com.example.ui.components.TopTimelineBar
@@ -81,9 +101,19 @@ import com.example.ui.screens.HalfDialWorkspaceView
 import com.example.ui.screens.LandscapeHubView
 import com.example.ui.screens.PortraitCommandView
 import com.example.ui.screens.StxAiView
+import com.example.ui.theme.HudAmber
+import com.example.ui.theme.HudCrimson
+import com.example.ui.theme.HudCrimsonBorder
+import com.example.ui.theme.HudCrimsonSubtle
 import com.example.ui.theme.HudCyan
 import com.example.ui.theme.HudCyanBorder
+import com.example.ui.theme.HudCyanSubtle
+import com.example.ui.theme.HudEmerald
+import com.example.ui.theme.HudIce
+import com.example.ui.theme.HudSilver
+import com.example.ui.theme.HudSlate
 import com.example.ui.theme.JetBrainsMonoFontFamily
+import com.example.ui.theme.OrbitronFontFamily
 import com.example.ui.theme.StarkOsTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -104,6 +134,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MiuiFreeformLauncher.setHostActivity(this)
         // Must initialize App Check before any Firebase AI or ViewModel usage
         configureAppCheck(this, intent)
 
@@ -170,11 +201,14 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        MiuiFreeformLauncher.setHostActivity(this)
+        viewModel.setForegroundActive(true)
         StxFloatingAiService.setAppInForeground(true)
         resumeTick.value += 1
     }
 
     override fun onPause() {
+        viewModel.setForegroundActive(false)
         StxFloatingAiService.setAppInForeground(false)
         super.onPause()
     }
@@ -195,15 +229,19 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onDestroy() {
+        MiuiFreeformLauncher.setHostActivity(null)
         runCatching { unregisterReceiver(screenOffReceiver) }
         super.onDestroy()
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        viewModel.onConfigurationChanged(
-            isLandscape = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
-        )
+        val isLandscape = when (newConfig.orientation) {
+            Configuration.ORIENTATION_LANDSCAPE -> true
+            Configuration.ORIENTATION_PORTRAIT -> false
+            else -> newConfig.screenWidthDp > newConfig.screenHeightDp && newConfig.screenWidthDp >= 520
+        }
+        viewModel.onConfigurationChanged(isLandscape = isLandscape)
     }
 
     private fun setLockDimmed(dimmed: Boolean) {
@@ -245,6 +283,84 @@ fun StarkOsRoot(
         if (state.statusBanner != null) {
             delay(2600L)
             viewModel.clearBanner()
+        }
+    }
+
+    var startupPermDismissed by remember { mutableStateOf(false) }
+    var autoPermTriggered by remember { mutableStateOf(false) }
+    var permCheckTick by remember { mutableIntStateOf(0) }
+    var permLaunchStartedAtMs by remember { mutableLongStateOf(0L) }
+    var permLaunchUserInitiated by remember { mutableStateOf(false) }
+    var permDialogNote by remember { mutableStateOf<String?>(null) }
+
+    val permissionStatuses = remember(resumeCounter, permCheckTick) {
+        LauncherPermissionManager.getPermissionStatuses(context)
+    }
+    val missingRuntimePerms = remember(resumeCounter, permCheckTick) {
+        LauncherPermissionManager.missingRuntimePermissions(context)
+    }
+
+    val startupPermLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val elapsedMs = SystemClock.elapsedRealtime() - permLaunchStartedAtMs
+        val wasUserTap = permLaunchUserInitiated
+        permLaunchUserInitiated = false
+        viewModel.markPermissionsOnboarded()
+        viewModel.onPermissionsUpdated()
+        permCheckTick++
+        val missingAfter = LauncherPermissionManager.missingRuntimePermissions(context)
+        val anyGranted = results.values.any { it }
+        if (missingAfter.isEmpty()) {
+            permDialogNote = null
+            startupPermDismissed = true
+            viewModel.showStatusBanner("ALL LAUNCHER PERMISSIONS ARMED")
+        } else if (anyGranted) {
+            permDialogNote = "${missingAfter.size} permissions still needed — tap GRANT ALL or APP SETTINGS."
+            viewModel.showStatusBanner("${missingAfter.size} PERMS PENDING")
+        } else if (wasUserTap && elapsedMs < 500L) {
+            permDialogNote = "Android blocked the popup (Don't ask again / MIUI). Opening App Permissions…"
+            viewModel.showStatusBanner("OPENING ANDROID APP PERMISSIONS")
+            LauncherPermissionManager.openAppPermissionSettings(context)
+        } else {
+            permDialogNote = "Tap GRANT ALL PERMISSIONS or open APP SETTINGS to enable sensors."
+            viewModel.showStatusBanner("GRANT PERMISSIONS TO ENABLE ALL SENSORS")
+        }
+    }
+
+    fun launchRuntimePermissions(perms: Array<String>, userInitiated: Boolean) {
+        if (perms.isEmpty()) {
+            viewModel.markPermissionsOnboarded()
+            return
+        }
+        permLaunchUserInitiated = userInitiated
+        permLaunchStartedAtMs = SystemClock.elapsedRealtime()
+        runCatching {
+            startupPermLauncher.launch(perms)
+        }.onFailure {
+            permDialogNote = "Unable to show OS popup — opening App Permissions."
+            LauncherPermissionManager.openAppPermissionSettings(context)
+        }
+    }
+
+    LaunchedEffect(
+        state.preferencesLoaded,
+        state.preferences.permissionsOnboarded,
+        state.telemetry.touchLocked
+    ) {
+        if (state.preferencesLoaded &&
+            !state.preferences.permissionsOnboarded &&
+            !state.telemetry.touchLocked &&
+            !autoPermTriggered
+        ) {
+            autoPermTriggered = true
+            val missing = LauncherPermissionManager.missingRuntimePermissions(context)
+            if (missing.isNotEmpty()) {
+                delay(750L)
+                launchRuntimePermissions(missing, userInitiated = false)
+            } else {
+                viewModel.markPermissionsOnboarded()
+            }
         }
     }
 
@@ -448,7 +564,12 @@ fun StarkOsRoot(
         viewModel.stepBackFromHalfDialCenter()
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val windowIsLandscape = maxWidth > maxHeight && maxWidth >= 520.dp
+        LaunchedEffect(windowIsLandscape) {
+            viewModel.onConfigurationChanged(windowIsLandscape)
+        }
+
         // 1. Deep Obsidian Tactical Backdrop
         StarkObsidianBackground()
 
@@ -464,20 +585,27 @@ fun StarkOsRoot(
                     }
                 )
         ) {
-            if (state.mode != StarkMode.PORTRAIT) {
+            val effectiveHomeMode = when {
+                !state.preferences.autoMorphOrientation -> state.mode
+                state.mode == StarkMode.HUB && !windowIsLandscape -> StarkMode.PORTRAIT
+                state.mode == StarkMode.PORTRAIT && windowIsLandscape -> StarkMode.HUB
+                else -> state.mode
+            }
+
+            if (effectiveHomeMode != StarkMode.PORTRAIT) {
                 TopTimelineBar(
                     dayProgressFraction = state.clock.dayProgressFraction,
                     timeText = state.clock.timeText,
                     batteryPercent = state.telemetry.batteryPercent,
                     isCharging = state.telemetry.isCharging,
-                    showBackToHub = state.mode == StarkMode.HALF_DIAL || state.mode == StarkMode.STX_AI,
+                    showBackToHub = effectiveHomeMode == StarkMode.HALF_DIAL || effectiveHomeMode == StarkMode.STX_AI,
                     onBackToHub = { viewModel.stepBackFromHalfDialCenter() }
                 )
             }
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 AnimatedContent(
-                    targetState = state.mode,
+                    targetState = effectiveHomeMode,
                     transitionSpec = {
                         (fadeIn(tween(200)) + scaleIn(initialScale = 0.96f, animationSpec = tween(200)))
                             .togetherWith(fadeOut(tween(150)) + scaleOut(targetScale = 1.02f, animationSpec = tween(150)))
@@ -492,7 +620,7 @@ fun StarkOsRoot(
                             voicePartial = voiceState.partialTranscript,
                             onSelectHubIndex = viewModel::selectHubIndex,
                             onOpenModule = viewModel::openModule,
-                            onLaunchAppFullscreen = viewModel::launchAppFullscreen,
+                            onLaunchAppFullscreen = viewModel::launchAppWithLeftDialMode,
                             onAskStxAi = { q ->
                                 viewModel.sendAiPrompt(q, switchToAiView = false, openOverlay = true)
                             },
@@ -508,7 +636,9 @@ fun StarkOsRoot(
                             onLockDeck = { viewModel.engageLockCover() },
                             onToggleFullscreen = {
                                 viewModel.setFullscreenImmersive(!state.preferences.fullscreenImmersive)
-                            }
+                            },
+                            onOpenOrbStudio = { viewModel.openSettingsSection(SettingsSection.ORB_STUDIO) },
+                            onOpenPermissions = { viewModel.openSettingsSection(SettingsSection.PERMISSIONS) }
                         )
 
                         StarkMode.HUB -> LandscapeHubView(
@@ -530,7 +660,8 @@ fun StarkOsRoot(
                             onLockDeck = { viewModel.engageLockCover() },
                             onToggleFullscreen = {
                                 viewModel.setFullscreenImmersive(!state.preferences.fullscreenImmersive)
-                            }
+                            },
+                            onOpenOrbStudio = { viewModel.openSettingsSection(SettingsSection.ORB_STUDIO) }
                         )
 
                         StarkMode.HALF_DIAL -> HalfDialWorkspaceView(
@@ -579,7 +710,16 @@ fun StarkOsRoot(
                             onClearPasscode = viewModel::clearPasscode,
                             onSetLockWidgets = viewModel::setLockWidgetVisibility,
                             onSetLockHeadline = viewModel::setLockHeadline,
-                            onEngageLockNow = { viewModel.engageLockCover() }
+                            onEngageLockNow = { viewModel.engageLockCover() },
+                            onToggleOrbUseHtml = viewModel::setOrbUseHtmlWebGl,
+                            onOrbRotationSpeedChange = viewModel::setOrbRotationSpeed,
+                            onOrbBloomStrengthChange = viewModel::setOrbBloomStrength,
+                            onOrbScaleChange = viewModel::setOrbScale,
+                            onToggleOrbAutoRotate = viewModel::setOrbAutoRotate,
+                            onToggleOrbShowTextNodes = viewModel::setOrbShowTextNodes,
+                            onToggleOrbShowDebris = viewModel::setOrbShowDebris,
+                            onToggleOrbSpeechGlowReactive = viewModel::setOrbSpeechGlowReactive,
+                            onResetOrbDefaults = viewModel::resetOrbDefaults
                         )
 
                         StarkMode.STX_AI -> StxAiView(
@@ -592,6 +732,7 @@ fun StarkOsRoot(
                             onWarmUpSpeech = viewModel::warmUpSpeech,
                             onToggleTts = viewModel::toggleTtsEnabled,
                             onAvatarTap = viewModel::onHologramAvatarTap,
+                            onToggleOrbMode = viewModel::setOrbUseHtmlWebGl,
                             onBack = { viewModel.stepBackFromHalfDialCenter() }
                         )
                     }
@@ -656,7 +797,254 @@ fun StarkOsRoot(
             )
         }
 
-        // 5. Transient Status Toast Banner
+        // 5. Unmissable First-Launch / Missing Hardware Permissions Setup Overlay
+        val showStartupPerms = state.preferencesLoaded &&
+            !state.telemetry.touchLocked &&
+            !startupPermDismissed &&
+            (missingRuntimePerms.isNotEmpty() || !canDrawOverlays) &&
+            !(state.mode == StarkMode.HALF_DIAL && state.activeModule == HubModule.SETTINGS)
+
+        if (showStartupPerms) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xBB010409))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {}
+                    )
+                    .padding(16.dp)
+                    .testTag("startup_permissions_dialog"),
+                contentAlignment = Alignment.Center
+            ) {
+                HudBracketCard(
+                    modifier = Modifier
+                        .widthIn(max = 460.dp)
+                        .fillMaxWidth(),
+                    borderColor = HudCrimson,
+                    contentPadding = 14.dp
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.VerifiedUser,
+                                    contentDescription = "Launcher Permissions",
+                                    tint = HudCyan,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = "STX OS // LAUNCHER PERMISSIONS",
+                                        fontFamily = OrbitronFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = HudIce
+                                    )
+                                    Text(
+                                        text = "ARM HARDWARE ACCESS SO NO FEATURE CRASHES",
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontSize = 8.5.sp,
+                                        color = HudAmber
+                                    )
+                                }
+                            }
+                        }
+
+                        permDialogNote?.let { note ->
+                            Text(
+                                text = note,
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 9.sp,
+                                color = HudAmber
+                            )
+                        }
+
+                        permissionStatuses.forEach { perm ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0x99060E1A))
+                                    .border(
+                                        0.8.dp,
+                                        if (perm.granted) HudEmerald.copy(alpha = 0.45f) else HudCrimsonBorder,
+                                        RoundedCornerShape(4.dp)
+                                    )
+                                    .then(
+                                        if (!perm.granted) {
+                                            Modifier.clickable {
+                                                launchRuntimePermissions(perm.permissions, userInitiated = true)
+                                            }
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = perm.title,
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 9.5.sp,
+                                        color = HudIce
+                                    )
+                                    Text(
+                                        text = perm.description,
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontSize = 8.sp,
+                                        color = HudSilver
+                                    )
+                                }
+                                Text(
+                                    text = if (perm.granted) "ARMED" else "GRANT >",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 9.sp,
+                                    color = if (perm.granted) HudEmerald else HudCrimson
+                                )
+                            }
+                        }
+
+                        if (missingRuntimePerms.isNotEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 44.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(HudCyanSubtle)
+                                    .border(1.dp, HudCyan, RoundedCornerShape(4.dp))
+                                    .clickable {
+                                        launchRuntimePermissions(missingRuntimePerms, userInitiated = true)
+                                    }
+                                    .testTag("startup_grant_all_btn"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "GRANT ALL PERMISSIONS (${missingRuntimePerms.size})",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.5.sp,
+                                    color = HudIce
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            if (!canDrawOverlays) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 40.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(HudCrimsonSubtle)
+                                        .border(1.dp, HudCrimson, RoundedCornerShape(4.dp))
+                                        .clickable { setSystemFloatingAi(true) }
+                                        .padding(horizontal = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "OVERLAY",
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 9.sp,
+                                        color = HudIce
+                                    )
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 40.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0x9906121E))
+                                    .border(1.dp, HudAmber.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                                    .clickable {
+                                        LauncherPermissionManager.openAppPermissionSettings(context)
+                                    }
+                                    .padding(horizontal = 6.dp)
+                                    .testTag("startup_app_settings_btn"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "APP SETTINGS",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 9.sp,
+                                    color = HudAmber
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 40.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0x9906121E))
+                                    .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
+                                    .clickable {
+                                        startupPermDismissed = true
+                                        viewModel.openSettingsSection(SettingsSection.PERMISSIONS)
+                                    }
+                                    .padding(horizontal = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "PERMS PANEL",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 9.sp,
+                                    color = HudCyan
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .weight(0.8f)
+                                    .heightIn(min = 40.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0x88080D14))
+                                    .border(1.dp, HudSlate.copy(alpha = 0.55f), RoundedCornerShape(4.dp))
+                                    .clickable {
+                                        startupPermDismissed = true
+                                        viewModel.markPermissionsOnboarded()
+                                    }
+                                    .padding(horizontal = 6.dp)
+                                    .testTag("startup_skip_perms_btn"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "LATER",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 9.sp,
+                                    color = HudSilver
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5b. Transient Status Toast Banner (topmost layer above overlays)
         AnimatedVisibility(
             visible = state.statusBanner != null,
             enter = fadeIn(tween(150)),
@@ -687,5 +1075,5 @@ fun StarkOsRoot(
             active = state.telemetry.flashlightOn,
             crimsonMode = state.preferences.edgeGlowCrimson
         )
+        }
     }
-}

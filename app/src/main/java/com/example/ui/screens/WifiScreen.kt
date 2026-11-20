@@ -1,5 +1,9 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,15 +28,24 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.hardware.LauncherPermissionManager
 import com.example.ui.StarkUiState
 import com.example.ui.components.CarouselSpecRow
 import com.example.ui.components.HolographicCardCarousel
@@ -66,8 +79,43 @@ fun WifiScreen(
     onSelectIndex: (Int) -> Unit,
     onOpenWifiPanel: () -> Unit,
     onOpenBluetoothPanel: () -> Unit,
+    onPermissionsUpdated: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var hasLocationPerm by remember {
+        mutableStateOf(LauncherPermissionManager.hasAnyLocationPermission(context))
+    }
+    var hasBtPerm by remember {
+        mutableStateOf(LauncherPermissionManager.hasBluetoothPermission(context))
+    }
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val locNow = LauncherPermissionManager.hasAnyLocationPermission(context)
+                val btNow = LauncherPermissionManager.hasBluetoothPermission(context)
+                val changed = (locNow && !hasLocationPerm) || (btNow && !hasBtPerm)
+                hasLocationPerm = locNow
+                hasBtPerm = btNow
+                if (changed) onPermissionsUpdated()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val locationLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        hasLocationPerm = LauncherPermissionManager.hasAnyLocationPermission(context)
+        onPermissionsUpdated()
+    }
+    val btLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        hasBtPerm = LauncherPermissionManager.hasBluetoothPermission(context)
+        onPermissionsUpdated()
+    }
     val cards = remember(
         state.telemetry.networkTransport,
         state.telemetry.wifiSignalPercent,
@@ -168,6 +216,34 @@ fun WifiScreen(
                                 valueColor = if (state.telemetry.wifiConnected) HudEmerald else HudCrimson,
                                 compact = isCompactStage
                             )
+                            if (!hasLocationPerm) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 40.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(HudCrimsonSubtle)
+                                        .border(1.dp, HudCrimson, RoundedCornerShape(4.dp))
+                                        .clickable {
+                                            locationLauncher.launch(
+                                                arrayOf(
+                                                    Manifest.permission.ACCESS_FINE_LOCATION,
+                                                    Manifest.permission.ACCESS_COARSE_LOCATION
+                                                )
+                                            )
+                                        }
+                                        .testTag("wifi_grant_location_btn"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "GRANT LOCATION FOR SSID",
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 9.5.sp,
+                                        color = HudIce
+                                    )
+                                }
+                            }
                             Spacer(modifier = Modifier.height(4.dp))
                             Box(
                                 modifier = Modifier
@@ -290,6 +366,34 @@ fun WifiScreen(
                                 valueColor = HudIce,
                                 compact = isCompactStage
                             )
+                            if (!hasBtPerm && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 40.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(HudCyanSubtle)
+                                        .border(1.dp, HudCyan, RoundedCornerShape(4.dp))
+                                        .clickable {
+                                            btLauncher.launch(
+                                                arrayOf(
+                                                    Manifest.permission.BLUETOOTH_CONNECT,
+                                                    Manifest.permission.BLUETOOTH_SCAN
+                                                )
+                                            )
+                                        }
+                                        .testTag("wifi_grant_bt_btn"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "GRANT BLUETOOTH ACCESS",
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 9.5.sp,
+                                        color = HudIce
+                                    )
+                                }
+                            }
                             Spacer(modifier = Modifier.height(4.dp))
                             Box(
                                 modifier = Modifier
