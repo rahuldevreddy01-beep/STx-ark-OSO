@@ -26,3 +26,21 @@ val HudIce = Color(0xFFF3FAFF)
 val HudSilver = Color(0xFFB8CCE0)
 val HudSlate = Color(0xFF6F88A0)
 val HudDivider = Color(0x2B3B5F80)
+
+// Stark OS Home v3 palette tokens
+val V3Teal = Color(0xFF22D3E6)
+val V3TealDark = Color(0xFF14879A)
+val V3Cyan = Color(0xFF62E8F7)
+val V3Red = Color(0xFFFF2D4F)
+val V3RedDark = Color(0xFF7A0F22)
+val V3RedBright = Color(0xFFB81C2E)
+val V3Text = Color(0xFFE3E9EE)
+val V3Dim = Color(0xFF6A7682)
+val V3Line = Color(0x4D22D3E6)
+val V3LineBright = Color(0x6122D3E6)
+
+// Stark Titanium-Gold accents for dual-tone Boot HUD & Reactor
+val StarkGold = Color(0xFFF5B82E)
+val StarkGoldBright = Color(0xFFFFDF7E)
+val StarkGoldSoft = Color(0xAAFFD56B)
+val StarkGoldMuted = Color(0x55B8860B)

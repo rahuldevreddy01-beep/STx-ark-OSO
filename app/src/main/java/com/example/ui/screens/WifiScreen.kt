@@ -18,10 +18,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Icon
@@ -29,6 +33,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -47,16 +53,13 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.hardware.LauncherPermissionManager
 import com.example.ui.StarkUiState
-import com.example.ui.components.CarouselSpecRow
-import com.example.ui.components.HolographicCardCarousel
-import com.example.ui.components.HolographicCardHeader
-import com.example.ui.components.HolographicSideCardFooter
 import com.example.ui.theme.HudCrimson
 import com.example.ui.theme.HudCrimsonBorder
 import com.example.ui.theme.HudCrimsonSubtle
 import com.example.ui.theme.HudCyan
 import com.example.ui.theme.HudCyanBorder
 import com.example.ui.theme.HudCyanSubtle
+import com.example.ui.theme.HudDivider
 import com.example.ui.theme.HudEmerald
 import com.example.ui.theme.HudIce
 import com.example.ui.theme.HudSilver
@@ -64,8 +67,9 @@ import com.example.ui.theme.HudSlate
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.OrbitronFontFamily
 
-private data class WifiDeckCard(
+private data class WifiPage(
     val id: String,
+    val code: String,
     val title: String,
     val subtitle: String,
     val badge: String,
@@ -77,6 +81,7 @@ fun WifiScreen(
     state: StarkUiState,
     focusedIndex: Int,
     onSelectIndex: (Int) -> Unit,
+    onBack: () -> Unit = {},
     onOpenWifiPanel: () -> Unit,
     onOpenBluetoothPanel: () -> Unit,
     onPermissionsUpdated: () -> Unit = {},
@@ -116,6 +121,7 @@ fun WifiScreen(
         hasBtPerm = LauncherPermissionManager.hasBluetoothPermission(context)
         onPermissionsUpdated()
     }
+
     val cards = remember(
         state.telemetry.networkTransport,
         state.telemetry.wifiSignalPercent,
@@ -123,98 +129,152 @@ fun WifiScreen(
         state.telemetry.bluetoothStateLabel
     ) {
         listOf(
-            WifiDeckCard(
-                id = "link",
-                title = state.telemetry.wifiSsid,
-                subtitle = "01 RF LINK // ACTIVE TRANSPORT",
-                badge = state.telemetry.networkTransport
-            ),
-            WifiDeckCard(
-                id = "rf",
-                title = "SIGNAL TELEMETRY",
-                subtitle = "02 SPECTRUM // RSSI & BAND",
-                badge = "${state.telemetry.wifiSignalPercent}%"
-            ),
-            WifiDeckCard(
-                id = "ip",
-                title = "IPv4 & DNS ROUTE",
-                subtitle = "03 NETWORK // ADDRESSING",
-                badge = state.telemetry.ipv4Address
-            ),
-            WifiDeckCard(
-                id = "bt",
-                title = "BLUETOOTH RADIO",
-                subtitle = "04 SHORT-RANGE // PAIRED",
-                badge = state.telemetry.bluetoothStateLabel
-            ),
-            WifiDeckCard(
-                id = "panel",
-                title = "OS RF SWITCHBOARD",
-                subtitle = "05 SYSTEM // WIFI & BT PANELS",
-                badge = "OS WIFI",
-                isCrimson = true
-            )
+            WifiPage("link", "01", state.telemetry.wifiSsid, "ACTIVE TRANSPORT", state.telemetry.networkTransport),
+            WifiPage("rf", "02", "SIGNAL TELEMETRY", "RSSI & FREQUENCY BAND", "${state.telemetry.wifiSignalPercent}%"),
+            WifiPage("ip", "03", "IPv4 & DNS ROUTE", "NETWORK ADDRESSING", state.telemetry.ipv4Address),
+            WifiPage("bt", "04", "BLUETOOTH RADIO", "SHORT-RANGE PAIRED", state.telemetry.bluetoothStateLabel),
+            WifiPage("panel", "05", "OS RF SWITCHBOARD", "SYSTEM WIFI & BT PANELS", "OS WIFI", true)
         )
     }
 
-    HolographicCardCarousel(
-        items = cards,
-        focusedIndex = focusedIndex,
-        onSelectIndex = onSelectIndex,
-        itemKey = { _, card -> card.id },
-        isCrimsonAccent = { _, card, _ -> card.isCrimson },
-        modifier = modifier
-    ) { idx, card, isCenter, isCompactStage, _, relOffset ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(if (isCenter) Modifier.testTag("carousel_card_${card.id}") else Modifier),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            HolographicCardHeader(
-                index = idx,
-                totalCount = cards.size,
-                moduleLabel = "WIFI",
-                title = card.title,
-                subtitle = card.subtitle,
-                badge = card.badge,
-                isCenter = isCenter,
-                isCompactStage = isCompactStage,
-                crimsonBadge = card.isCrimson
-            )
+    val safeIndex = focusedIndex.coerceIn(0, cards.lastIndex)
+    val pagerState = rememberPagerState(initialPage = safeIndex, pageCount = { cards.size })
+    LaunchedEffect(safeIndex) {
+        if (!pagerState.isScrollInProgress && pagerState.currentPage != safeIndex) {
+            pagerState.scrollToPage(safeIndex)
+        }
+    }
+    LaunchedEffect(pagerState.settledPage) {
+        if (pagerState.settledPage != safeIndex) {
+            onSelectIndex(pagerState.settledPage)
+        }
+    }
 
-            if (isCenter) {
-                Column(
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0xD8050A12))
+                .border(1.dp, HudCyanBorder, RoundedCornerShape(6.dp))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .heightIn(min = 32.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(HudCrimsonSubtle)
+                    .border(1.dp, HudCrimsonBorder, RoundedCornerShape(4.dp))
+                    .clickable(onClick = onBack)
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .testTag("half_dial_center_back"),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("< BACK", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, color = HudIce)
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                Text("WIFI & RF LINK", fontFamily = OrbitronFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = HudIce)
+                Text("${cards[safeIndex].code} // ${cards[safeIndex].subtitle}", fontFamily = JetBrainsMonoFontFamily, fontSize = 8.sp, color = HudCyan)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(HudCyanSubtle)
+                        .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
+                        .clickable { onSelectIndex((safeIndex - 1 + cards.size) % cards.size) }
+                        .testTag("carousel_prev_button"),
+                    contentAlignment = Alignment.Center
+                ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous RF card", tint = HudCyan, modifier = Modifier.size(16.dp)) }
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(HudCyanSubtle)
+                        .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
+                        .clickable { onSelectIndex((safeIndex + 1) % cards.size) }
+                        .testTag("carousel_next_button"),
+                    contentAlignment = Alignment.Center
+                ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next RF card", tint = HudCyan, modifier = Modifier.size(16.dp)) }
+            }
+        }
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            cards.forEachIndexed { idx, c ->
+                val sel = idx == safeIndex
+                Box(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(vertical = 8.dp),
+                        .heightIn(min = 34.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (sel) HudCyanSubtle else Color(0x8806101B))
+                        .border(1.dp, if (sel) HudCyan else HudDivider, RoundedCornerShape(4.dp))
+                        .clickable { onSelectIndex(idx) }
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("${c.code} ${c.id.uppercase()}", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 8.sp, color = if (sel) HudIce else HudSilver, maxLines = 1)
+                }
+            }
+        }
+
+        HorizontalPager(
+            state = pagerState,
+            key = { cards[it].id },
+            modifier = Modifier.weight(1f).fillMaxWidth()
+        ) { page ->
+            val card = cards[page]
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xEB040911))
+                    .border(1.2.dp, if (card.isCrimson) HudCrimsonBorder else HudCyanBorder, RoundedCornerShape(8.dp))
+                    .padding(14.dp)
+                    .then(if (page == pagerState.currentPage) Modifier.testTag("carousel_card_${card.id}") else Modifier),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(card.title, fontFamily = OrbitronFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = HudIce, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${card.code} // ${card.subtitle}", fontFamily = JetBrainsMonoFontFamily, fontSize = 8.5.sp, color = HudCyan)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(if (card.isCrimson) HudCrimsonSubtle else HudCyanSubtle)
+                            .border(0.8.dp, if (card.isCrimson) HudCrimsonBorder else HudCyanBorder, RoundedCornerShape(3.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(card.badge, fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 8.5.sp, color = HudIce)
+                    }
+                }
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(HudCyan.copy(alpha = 0.22f)))
+
+                Column(
+                    modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     when (card.id) {
                         "link" -> {
-                            CarouselSpecRow(
-                                label = "TRANSPORT",
-                                value = state.telemetry.networkTransport,
-                                valueColor = HudCyan,
-                                compact = isCompactStage
-                            )
-                            CarouselSpecRow(
-                                label = "ACTIVE SSID",
-                                value = state.telemetry.wifiSsid,
-                                valueColor = HudIce,
-                                compact = isCompactStage
-                            )
-                            CarouselSpecRow(
-                                label = "ADAPTER STATE",
-                                value = when {
+                            WifiSpecRow("TRANSPORT", state.telemetry.networkTransport, HudCyan)
+                            WifiSpecRow("ACTIVE SSID", state.telemetry.wifiSsid, HudIce)
+                            WifiSpecRow(
+                                "ADAPTER STATE",
+                                when {
                                     state.telemetry.wifiConnected -> "CONNECTED"
                                     state.telemetry.wifiEnabled -> "ENABLED / SCANNING"
                                     else -> "DISABLED"
                                 },
-                                valueColor = if (state.telemetry.wifiConnected) HudEmerald else HudCrimson,
-                                compact = isCompactStage
+                                if (state.telemetry.wifiConnected) HudEmerald else HudCrimson
                             )
                             if (!hasLocationPerm) {
                                 Box(
@@ -225,23 +285,12 @@ fun WifiScreen(
                                         .background(HudCrimsonSubtle)
                                         .border(1.dp, HudCrimson, RoundedCornerShape(4.dp))
                                         .clickable {
-                                            locationLauncher.launch(
-                                                arrayOf(
-                                                    Manifest.permission.ACCESS_FINE_LOCATION,
-                                                    Manifest.permission.ACCESS_COARSE_LOCATION
-                                                )
-                                            )
+                                            locationLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                                         }
                                         .testTag("wifi_grant_location_btn"),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        "GRANT LOCATION FOR SSID",
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 9.5.sp,
-                                        color = HudIce
-                                    )
+                                    Text("GRANT LOCATION FOR SSID", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, color = HudIce)
                                 }
                             }
                             Spacer(modifier = Modifier.height(4.dp))
@@ -264,108 +313,39 @@ fun WifiScreen(
                         }
 
                         "rf" -> {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column {
                                     Text("SIGNAL STRENGTH", fontFamily = JetBrainsMonoFontFamily, fontSize = 9.sp, color = HudSlate)
-                                    Text(
-                                        text = "${state.telemetry.wifiSignalPercent}%",
-                                        fontFamily = OrbitronFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = if (isCompactStage) 20.sp else 26.sp,
-                                        color = HudEmerald
-                                    )
+                                    Text("${state.telemetry.wifiSignalPercent}%", fontFamily = OrbitronFontFamily, fontWeight = FontWeight.Bold, fontSize = 26.sp, color = HudEmerald)
                                 }
-                                Text(
-                                    text = "${state.telemetry.wifiRssiDbm} dBm",
-                                    fontFamily = JetBrainsMonoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp,
-                                    color = HudCyan
-                                )
+                                Text("${state.telemetry.wifiRssiDbm} dBm", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = HudCyan)
                             }
                             LinearProgressIndicator(
                                 progress = { (state.telemetry.wifiSignalPercent / 100f).coerceIn(0f, 1f) },
                                 color = HudEmerald,
                                 trackColor = Color(0xFF0A1624),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(6.dp)
-                                    .clip(RoundedCornerShape(3.dp))
+                                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
                             )
-                            CarouselSpecRow(
-                                label = "LINK SPEED",
-                                value = "${state.telemetry.wifiLinkSpeedMbps} Mbps",
-                                valueColor = HudIce,
-                                compact = isCompactStage
-                            )
-                            CarouselSpecRow(
-                                label = "BAND / FREQ",
-                                value = "${state.telemetry.wifiBandLabel} · ${state.telemetry.wifiFrequencyMhz} MHz",
-                                valueColor = HudCyan,
-                                compact = isCompactStage
-                            )
+                            WifiSpecRow("LINK SPEED", "${state.telemetry.wifiLinkSpeedMbps} Mbps", HudIce)
+                            WifiSpecRow("BAND / FREQ", "${state.telemetry.wifiBandLabel} · ${state.telemetry.wifiFrequencyMhz} MHz", HudCyan)
                         }
 
                         "ip" -> {
-                            CarouselSpecRow(
-                                label = "IPv4 ADDRESS",
-                                value = state.telemetry.ipv4Address,
-                                valueColor = HudCyan,
-                                compact = isCompactStage
-                            )
-                            CarouselSpecRow(
-                                label = "DNS SERVER",
-                                value = state.telemetry.dnsServer,
-                                valueColor = HudIce,
-                                compact = isCompactStage
-                            )
-                            CarouselSpecRow(
-                                label = "CARRIER / LINK",
-                                value = state.telemetry.networkTransport,
-                                valueColor = HudSilver,
-                                compact = isCompactStage
-                            )
-                            CarouselSpecRow(
-                                label = "BANDWIDTH",
-                                value = "${state.telemetry.wifiLinkSpeedMbps} Mbps",
-                                valueColor = HudEmerald,
-                                compact = isCompactStage
-                            )
+                            WifiSpecRow("IPv4 ADDRESS", state.telemetry.ipv4Address, HudCyan)
+                            WifiSpecRow("DNS SERVER", state.telemetry.dnsServer, HudIce)
+                            WifiSpecRow("CARRIER / LINK", state.telemetry.networkTransport, HudSilver)
+                            WifiSpecRow("BANDWIDTH", "${state.telemetry.wifiLinkSpeedMbps} Mbps", HudEmerald)
                         }
 
                         "bt" -> {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column {
                                     Text("BLUETOOTH ADAPTER", fontFamily = JetBrainsMonoFontFamily, fontSize = 9.sp, color = HudSlate)
-                                    Text(
-                                        text = state.telemetry.bluetoothStateLabel,
-                                        fontFamily = OrbitronFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = if (isCompactStage) 16.sp else 20.sp,
-                                        color = if (state.telemetry.bluetoothEnabled) HudCyan else HudCrimson
-                                    )
+                                    Text(state.telemetry.bluetoothStateLabel, fontFamily = OrbitronFontFamily, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = if (state.telemetry.bluetoothEnabled) HudCyan else HudCrimson)
                                 }
-                                Icon(
-                                    Icons.Default.Bluetooth,
-                                    contentDescription = "Bluetooth status",
-                                    tint = if (state.telemetry.bluetoothEnabled) HudCyan else HudSlate,
-                                    modifier = Modifier.size(26.dp)
-                                )
+                                Icon(Icons.Default.Bluetooth, "Bluetooth status", tint = if (state.telemetry.bluetoothEnabled) HudCyan else HudSlate, modifier = Modifier.size(26.dp))
                             }
-                            CarouselSpecRow(
-                                label = "PAIRED DEVICES",
-                                value = "${state.telemetry.bluetoothPairedCount} BONDED",
-                                valueColor = HudIce,
-                                compact = isCompactStage
-                            )
+                            WifiSpecRow("PAIRED DEVICES", "${state.telemetry.bluetoothPairedCount} BONDED", HudIce)
                             if (!hasBtPerm && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                                 Box(
                                     modifier = Modifier
@@ -374,24 +354,11 @@ fun WifiScreen(
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(HudCyanSubtle)
                                         .border(1.dp, HudCyan, RoundedCornerShape(4.dp))
-                                        .clickable {
-                                            btLauncher.launch(
-                                                arrayOf(
-                                                    Manifest.permission.BLUETOOTH_CONNECT,
-                                                    Manifest.permission.BLUETOOTH_SCAN
-                                                )
-                                            )
-                                        }
+                                        .clickable { btLauncher.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)) }
                                         .testTag("wifi_grant_bt_btn"),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        "GRANT BLUETOOTH ACCESS",
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 9.5.sp,
-                                        color = HudIce
-                                    )
+                                    Text("GRANT BLUETOOTH ACCESS", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, color = HudIce)
                                 }
                             }
                             Spacer(modifier = Modifier.height(4.dp))
@@ -411,12 +378,7 @@ fun WifiScreen(
                         }
 
                         "panel" -> {
-                            Text(
-                                text = "Launch native Android RF switchboards directly from STX OS.",
-                                fontFamily = JetBrainsMonoFontFamily,
-                                fontSize = 10.sp,
-                                color = HudSilver
-                            )
+                            Text("Launch native Android RF switchboards directly from STX OS.", fontFamily = JetBrainsMonoFontFamily, fontSize = 10.sp, color = HudSilver)
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -444,10 +406,19 @@ fun WifiScreen(
                         }
                     }
                 }
-            } else {
-                Spacer(modifier = Modifier.weight(1f))
-                HolographicSideCardFooter(relOffset = relOffset)
             }
         }
+    }
+}
+
+@Composable
+private fun WifiSpecRow(label: String, value: String, valueColor: Color) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, fontFamily = JetBrainsMonoFontFamily, fontSize = 9.sp, color = HudSlate, maxLines = 1)
+        Text(value, fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, color = valueColor, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp))
     }
 }

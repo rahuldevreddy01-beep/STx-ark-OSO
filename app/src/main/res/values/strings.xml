@@ -11,4 +11,7 @@
     <string name="cd_voice_command">Start voice command for STX AI</string>
     <string name="device_admin_label">STX OS Screen Lock</string>
     <string name="device_admin_description">Allows STX OS to turn off and lock the physical device screen when pressing the HUD Lock button or after lockscreen timeout.</string>
+    <string name="all_apps_dock_label">ALL APPS</string>
+    <string name="all_apps_search_hint">SEARCH</string>
+    <string name="all_apps_suggested_header">SUGGESTED · FROM YOUR USAGE</string>
 </resources>

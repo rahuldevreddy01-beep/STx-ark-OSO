@@ -129,15 +129,51 @@ class LauncherAppsRepository(private val context: Context) {
     }
 
     /**
-     * Requests MIUI/HyperOS Floating Window or AOSP Freeform Window mode with portrait bounds.
+     * Requests MIUI/HyperOS Floating Window (`--windowingMode 5`) using Shizuku / Root shell first
+     * (when active) so MIUI 12.5 opens directly into a floating window without opening fullscreen first,
+     * falling back seamlessly to MiuiMultiWindowUtils + WindowingMode 5 ActivityOptions.
      */
+    suspend fun launchWindowedAsync(app: InstalledApp): Boolean {
+        if (app.packageName.isBlank()) return false
+        if (MiuiFreeformLauncher.hasActivePrivilegedShell()) {
+            val shellOk = withContext(Dispatchers.IO) {
+                MiuiFreeformLauncher.tryPrivilegedWindowMode5Launch(
+                    context = context,
+                    packageName = app.packageName,
+                    activityName = app.activityName
+                )
+            }
+            if (shellOk) return true
+        }
+        return withContext(Dispatchers.Main.immediate) {
+            launchWindowedNative(app)
+        }
+    }
+
     fun launchWindowed(app: InstalledApp): Boolean {
         if (app.packageName.isBlank()) return false
+        if (MiuiFreeformLauncher.hasActivePrivilegedShell()) {
+            val shellOk = MiuiFreeformLauncher.tryPrivilegedWindowMode5Launch(
+                context = context,
+                packageName = app.packageName,
+                activityName = app.activityName
+            )
+            if (shellOk) return true
+        }
+        return launchWindowedNative(app)
+    }
+
+    private fun launchWindowedNative(app: InstalledApp): Boolean {
         return runCatching {
-            val intent = if (app.activityName.isNotBlank()) {
+            val comp = MiuiFreeformLauncher.resolveLaunchComponent(
+                context = context,
+                packageName = app.packageName,
+                knownActivityName = app.activityName
+            )
+            val intent = if (comp != null) {
                 Intent(Intent.ACTION_MAIN).apply {
                     addCategory(Intent.CATEGORY_LAUNCHER)
-                    component = ComponentName(app.packageName, app.activityName)
+                    component = comp
                 }
             } else {
                 context.packageManager.getLaunchIntentForPackage(app.packageName)

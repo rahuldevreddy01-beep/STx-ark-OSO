@@ -57,6 +57,7 @@ class LauncherPreferencesRepository(private val context: Context) {
         val SYSTEM_FLOATING_AI = booleanPreferencesKey("system_floating_ai")
         val APP_USAGE_JSON = stringPreferencesKey("app_usage_json")
         val PERMISSIONS_ONBOARDED = booleanPreferencesKey("permissions_onboarded")
+        val FIRST_BOOT_COMPLETED = booleanPreferencesKey("first_boot_completed")
         val ORB_USE_HTML_WEBGL = booleanPreferencesKey("orb_use_html_webgl")
         val ORB_ROTATION_SPEED = floatPreferencesKey("orb_rotation_speed")
         val ORB_BLOOM_STRENGTH = floatPreferencesKey("orb_bloom_strength")
@@ -111,6 +112,7 @@ class LauncherPreferencesRepository(private val context: Context) {
             appLaunchCounts = usageCounts,
             appLastUsedMs = usageLastMs,
             permissionsOnboarded = prefs[Keys.PERMISSIONS_ONBOARDED] ?: false,
+            firstBootCompleted = prefs[Keys.FIRST_BOOT_COMPLETED] ?: false,
             orbUseHtmlWebGl = prefs[Keys.ORB_USE_HTML_WEBGL] ?: true,
             orbRotationSpeed = (prefs[Keys.ORB_ROTATION_SPEED] ?: 1.0f).coerceIn(0.2f, 2.5f),
             orbBloomStrength = (prefs[Keys.ORB_BLOOM_STRENGTH] ?: 1.1f).coerceIn(0.3f, 2.0f),
@@ -277,6 +279,10 @@ class LauncherPreferencesRepository(private val context: Context) {
 
     suspend fun setPermissionsOnboarded(onboarded: Boolean) {
         context.stxDataStore.edit { it[Keys.PERMISSIONS_ONBOARDED] = onboarded }
+    }
+
+    suspend fun setFirstBootCompleted(completed: Boolean) {
+        context.stxDataStore.edit { it[Keys.FIRST_BOOT_COMPLETED] = completed }
     }
 
     suspend fun setOrbUseHtmlWebGl(useHtml: Boolean) {

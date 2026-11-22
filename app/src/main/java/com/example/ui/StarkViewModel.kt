@@ -56,6 +56,7 @@ data class StarkUiState(
     val subItemIndex: Int = 0,
     val leftDialLaunchMode: AppLaunchMode = AppLaunchMode.FLOATING,
     val stxOverlayOpen: Boolean = false,
+    val allAppsDrawerOpen: Boolean = false,
     val installedApps: List<InstalledApp> = emptyList(),
     val topRecentApps: List<InstalledApp> = emptyList(),
     val appsLoading: Boolean = true,
@@ -82,7 +83,8 @@ data class StarkUiState(
     val statusBanner: String? = null,
     val lockScreenError: String? = null,
     val lockAiReply: String? = null,
-    val preferencesLoaded: Boolean = false
+    val preferencesLoaded: Boolean = false,
+    val protocolIndex: Int = 2
 )
 
 class StarkViewModel(application: Application) : AndroidViewModel(application) {
@@ -294,12 +296,21 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { prefsRepo.setPermissionsOnboarded(true) }
     }
 
+    fun markFirstBootCompleted() {
+        viewModelScope.launch { prefsRepo.setFirstBootCompleted(true) }
+    }
+
+    fun replayFirstBoot() {
+        playSelectCue()
+        viewModelScope.launch { prefsRepo.setFirstBootCompleted(false) }
+    }
+
     fun setOrbUseHtmlWebGl(useHtml: Boolean) {
         playSelectCue()
         viewModelScope.launch {
             prefsRepo.setOrbUseHtmlWebGl(useHtml)
             _uiState.update {
-                it.copy(statusBanner = if (useHtml) "STX CORE: 3D HTML ORB" else "STX CORE: HOLO GIRL")
+                it.copy(statusBanner = if (useHtml) "STX CORE: 3D WIREFRAME ORB" else "STX CORE: HOLO GIRL")
             }
         }
     }
@@ -354,7 +365,8 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     it.activeModule
                 },
-                stxOverlayOpen = false
+                stxOverlayOpen = false,
+                allAppsDrawerOpen = false
             )
         }
         syncSensorMode()
@@ -369,8 +381,18 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
             StarkMode.HALF_DIAL -> StarkMode.STX_AI
             StarkMode.STX_AI -> StarkMode.PORTRAIT
         }
-        _uiState.update { it.copy(mode = next, stxOverlayOpen = false) }
+        _uiState.update { it.copy(mode = next, stxOverlayOpen = false, allAppsDrawerOpen = false) }
         syncSensorMode()
+    }
+
+    fun openAllAppsDrawer() {
+        playSelectCue()
+        _uiState.update { it.copy(allAppsDrawerOpen = true, stxOverlayOpen = false) }
+    }
+
+    fun closeAllAppsDrawer() {
+        playBackCue()
+        _uiState.update { it.copy(allAppsDrawerOpen = false) }
     }
 
     fun toggleStxOverlay() {
@@ -386,6 +408,20 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
     fun closeStxOverlay() {
         playBackCue()
         _uiState.update { it.copy(stxOverlayOpen = false) }
+    }
+
+    fun selectProtocol(index: Int) {
+        val protocols = listOf("SLEEP", "STEALTH", "LIFE", "LAB", "FOCUS")
+        val clamped = ((index % protocols.size) + protocols.size) % protocols.size
+        if (clamped != _uiState.value.protocolIndex) {
+            playDetentCue()
+            _uiState.update {
+                it.copy(
+                    protocolIndex = clamped,
+                    statusBanner = "PROTOCOL ${protocols[clamped]} ENGAGED"
+                )
+            }
+        }
     }
 
     fun selectHubIndex(index: Int) {
@@ -405,7 +441,8 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
                     hubSelectedIndex = idx,
                     activeModule = module,
                     mode = StarkMode.STX_AI,
-                    stxOverlayOpen = false
+                    stxOverlayOpen = false,
+                    allAppsDrawerOpen = false
                 )
             }
         } else {
@@ -414,7 +451,8 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
                     hubSelectedIndex = idx,
                     activeModule = module,
                     subItemIndex = 0,
-                    mode = StarkMode.HALF_DIAL
+                    mode = StarkMode.HALF_DIAL,
+                    allAppsDrawerOpen = false
                 )
             }
         }
@@ -430,7 +468,8 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
                 activeModule = HubModule.SETTINGS,
                 subItemIndex = section.ordinal,
                 mode = StarkMode.HALF_DIAL,
-                stxOverlayOpen = false
+                stxOverlayOpen = false,
+                allAppsDrawerOpen = false
             )
         }
         syncSensorMode()
@@ -448,6 +487,10 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
 
     fun stepBackFromHalfDialCenter(): Boolean {
         val state = _uiState.value
+        if (state.allAppsDrawerOpen) {
+            closeAllAppsDrawer()
+            return true
+        }
         if (state.stxOverlayOpen) {
             closeStxOverlay()
             return true
@@ -510,14 +553,22 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
 
     fun launchAppWindowed(app: InstalledApp) {
         playSelectCue()
-        val ok = appsRepo.launchWindowed(app)
-        if (ok) {
-            viewModelScope.launch { prefsRepo.recordAppLaunch(app.packageName) }
-        }
-        _uiState.update {
-            it.copy(
-                statusBanner = if (ok) "FLOATING · ${app.label.uppercase()}" else "UNABLE TO LAUNCH ${app.label.uppercase()}"
-            )
+        viewModelScope.launch {
+            val ok = appsRepo.launchWindowedAsync(app)
+            if (ok) {
+                prefsRepo.recordAppLaunch(app.packageName)
+            }
+            val telemetry = com.example.hardware.MiuiFreeformLauncher.getBridgeTelemetry(getApplication())
+            _uiState.update {
+                it.copy(
+                    statusBanner = when {
+                        !ok -> "UNABLE TO LAUNCH ${app.label.uppercase()}"
+                        telemetry.isPrivilegedBridgeReady -> "FLOAT MODE 5 · ${app.label.uppercase()}"
+                        telemetry.isGlobalFreeformReady -> "FLOATING · ${app.label.uppercase()}"
+                        else -> "MIUI BLOCKED FLOAT · ARM SHIZUKU OR DEV FREEFORM IN SETTINGS"
+                    }
+                )
+            }
         }
     }
 
@@ -624,6 +675,7 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update {
             it.copy(
                 stxOverlayOpen = false,
+                allAppsDrawerOpen = false,
                 lockScreenError = null,
                 lockAiReply = null,
                 statusBanner = if (osLocked) {
@@ -655,6 +707,7 @@ class StarkViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update {
                 it.copy(
                     stxOverlayOpen = false,
+                    allAppsDrawerOpen = false,
                     lockScreenError = null,
                     lockAiReply = null
                 )

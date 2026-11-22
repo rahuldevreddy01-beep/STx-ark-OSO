@@ -25,12 +25,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,6 +45,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -53,6 +56,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -68,7 +72,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -90,17 +98,22 @@ import com.example.security.configureAppCheck
 import com.example.service.StxFloatingAiService
 import com.example.ui.StarkUiState
 import com.example.ui.StarkViewModel
-import com.example.ui.components.ArcReactorBootPulse
-import com.example.ui.components.EdgeFlashOverlay
-import com.example.ui.components.FloatingStxAiOverlay
-import com.example.ui.components.HudBracketCard
-import com.example.ui.components.LockscreenCoverOverlay
-import com.example.ui.components.StarkObsidianBackground
-import com.example.ui.components.TopTimelineBar
-import com.example.ui.screens.HalfDialWorkspaceView
-import com.example.ui.screens.LandscapeHubView
-import com.example.ui.screens.PortraitCommandView
-import com.example.ui.screens.StxAiView
+import com.example.ui.screens.AllAppsScreen
+import com.example.ui.screens.AppsScreen
+import com.example.ui.screens.BootScreen
+import com.example.ui.screens.BriefScreen
+import com.example.ui.screens.CameraScreen
+import com.example.ui.screens.HealthScreen
+import com.example.ui.screens.LandscapeHomeScreen
+import com.example.ui.screens.LockscreenScreen
+import com.example.ui.screens.PortraitHomeScreen
+import com.example.ui.screens.SearchScreen
+import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.StxAiScreen
+import com.example.ui.screens.StxFloatingBubbleOverlay
+import com.example.ui.screens.VaultScreen
+import com.example.ui.screens.WifiScreen
+import com.example.ui.theme.DisplayFontFamily
 import com.example.ui.theme.HudAmber
 import com.example.ui.theme.HudCrimson
 import com.example.ui.theme.HudCrimsonBorder
@@ -108,12 +121,13 @@ import com.example.ui.theme.HudCrimsonSubtle
 import com.example.ui.theme.HudCyan
 import com.example.ui.theme.HudCyanBorder
 import com.example.ui.theme.HudCyanSubtle
+import com.example.ui.theme.HudDivider
 import com.example.ui.theme.HudEmerald
 import com.example.ui.theme.HudIce
 import com.example.ui.theme.HudSilver
 import com.example.ui.theme.HudSlate
 import com.example.ui.theme.JetBrainsMonoFontFamily
-import com.example.ui.theme.OrbitronFontFamily
+import com.example.ui.theme.ObsidianVoid
 import com.example.ui.theme.StarkOsTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -135,7 +149,6 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         MiuiFreeformLauncher.setHostActivity(this)
-        // Must initialize App Check before any Firebase AI or ViewModel usage
         configureAppCheck(this, intent)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -171,7 +184,6 @@ class MainActivity : FragmentActivity() {
                 applyImmersiveFullscreen(state.preferences.fullscreenImmersive)
             }
             LaunchedEffect(state.preferences.keepScreenOn, state.telemetry.touchLocked) {
-                // Only keep awake while unlocked so Lock Cover can sleep naturally after 10s
                 if (state.preferences.keepScreenOn && !state.telemetry.touchLocked) {
                     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 } else {
@@ -345,10 +357,12 @@ fun StarkOsRoot(
 
     LaunchedEffect(
         state.preferencesLoaded,
+        state.preferences.firstBootCompleted,
         state.preferences.permissionsOnboarded,
         state.telemetry.touchLocked
     ) {
         if (state.preferencesLoaded &&
+            state.preferences.firstBootCompleted &&
             !state.preferences.permissionsOnboarded &&
             !state.telemetry.touchLocked &&
             !autoPermTriggered
@@ -438,11 +452,12 @@ fun StarkOsRoot(
         } else {
             pendingOverlayEnable = true
             runCatching {
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:${context.packageName}")
+                overlayPermLauncher.launch(
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:${context.packageName}")
+                    )
                 )
-                overlayPermLauncher.launch(intent)
             }.onFailure {
                 pendingOverlayEnable = false
                 viewModel.showStatusBanner("OPEN SETTINGS > DISPLAY OVER OTHER APPS")
@@ -453,8 +468,6 @@ fun StarkOsRoot(
     fun dismissNonSecureOsKeyguard() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && activity != null) {
             val km = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-            // Only ask OS to dismiss Keyguard if there is NO secure PIN/Pattern; otherwise calling
-            // requestDismissKeyguard forces MIUI's PIN dialog directly on top of STX OS unlock.
             if (km?.isKeyguardLocked == true && !km.isKeyguardSecure) {
                 runCatching { km.requestDismissKeyguard(activity, null) }
             }
@@ -468,24 +481,15 @@ fun StarkOsRoot(
             viewModel.askStxAiOnLockscreen(clean)
         } else {
             val stayInFullAi = state.mode == StarkMode.STX_AI
-            viewModel.sendAiPrompt(
-                prompt = clean,
-                switchToAiView = false,
-                openOverlay = !stayInFullAi
-            )
+            viewModel.sendAiPrompt(prompt = clean, switchToAiView = false, openOverlay = !stayInFullAi)
         }
     }
 
     val speechFallbackLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        val spoken = result.data
-            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            ?.firstOrNull()
-            .orEmpty()
-        if (spoken.isNotBlank()) {
-            dispatchVoiceTranscript(spoken)
-        }
+        val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
+        if (spoken.isNotBlank()) dispatchVoiceTranscript(spoken)
     }
 
     val voiceManager = remember(context) {
@@ -495,10 +499,7 @@ fun StarkOsRoot(
             onStatusMessage = { msg -> viewModel.showStatusBanner(msg) },
             onFallbackIntentNeeded = {
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(
-                        RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                        RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-                    )
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                     putExtra(RecognizerIntent.EXTRA_PROMPT, "STX AI Voice Command")
                 }
                 if (intent.resolveActivity(context.packageManager) != null) {
@@ -525,9 +526,7 @@ fun StarkOsRoot(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            if (!state.telemetry.touchLocked && state.mode != StarkMode.STX_AI) {
-                viewModel.openStxOverlay()
-            }
+            if (!state.telemetry.touchLocked && state.mode != StarkMode.STX_AI) viewModel.openStxOverlay()
             voiceManager.startListening()
         } else {
             viewModel.showStatusBanner("MIC PERMISSION DENIED")
@@ -535,10 +534,8 @@ fun StarkOsRoot(
     }
 
     fun launchVoiceCommand() {
-        val hasPerm = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
+        val hasPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
         if (hasPerm) {
             if (!voiceState.isListening && !state.telemetry.touchLocked && state.mode != StarkMode.STX_AI) {
                 viewModel.openStxOverlay()
@@ -557,320 +554,409 @@ fun StarkOsRoot(
         }
     }
 
-    val shouldHandleBack = state.stxOverlayOpen ||
+    val shouldHandleBack = state.allAppsDrawerOpen ||
+        state.stxOverlayOpen ||
         state.mode == StarkMode.HALF_DIAL ||
         state.mode == StarkMode.STX_AI
     BackHandler(enabled = shouldHandleBack) {
         viewModel.stepBackFromHalfDialCenter()
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(Color(0xFF07111E), ObsidianVoid)
+                )
+            )
+    ) {
         val windowIsLandscape = maxWidth > maxHeight && maxWidth >= 520.dp
         LaunchedEffect(windowIsLandscape) {
             viewModel.onConfigurationChanged(windowIsLandscape)
         }
 
-        // 1. Deep Obsidian Tactical Backdrop
-        StarkObsidianBackground()
-
-        // 2. Main HUD Shell
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(
-                    if (!state.preferences.fullscreenImmersive) {
-                        Modifier.windowInsetsPadding(WindowInsets.safeDrawing)
-                    } else {
-                        Modifier.padding(top = 6.dp, bottom = 2.dp)
-                    }
-                )
-        ) {
-            val effectiveHomeMode = when {
-                !state.preferences.autoMorphOrientation -> state.mode
-                state.mode == StarkMode.HUB && !windowIsLandscape -> StarkMode.PORTRAIT
-                state.mode == StarkMode.PORTRAIT && windowIsLandscape -> StarkMode.HUB
-                else -> state.mode
-            }
-
-            if (effectiveHomeMode != StarkMode.PORTRAIT) {
-                TopTimelineBar(
-                    dayProgressFraction = state.clock.dayProgressFraction,
-                    timeText = state.clock.timeText,
-                    batteryPercent = state.telemetry.batteryPercent,
-                    isCharging = state.telemetry.isCharging,
-                    showBackToHub = effectiveHomeMode == StarkMode.HALF_DIAL || effectiveHomeMode == StarkMode.STX_AI,
-                    onBackToHub = { viewModel.stepBackFromHalfDialCenter() }
-                )
-            }
-
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                AnimatedContent(
-                    targetState = effectiveHomeMode,
-                    transitionSpec = {
-                        (fadeIn(tween(200)) + scaleIn(initialScale = 0.96f, animationSpec = tween(200)))
-                            .togetherWith(fadeOut(tween(150)) + scaleOut(targetScale = 1.02f, animationSpec = tween(150)))
-                    },
-                    label = "stx_mode_transition"
-                ) { targetMode ->
-                    when (targetMode) {
-                        StarkMode.PORTRAIT -> PortraitCommandView(
-                            state = state,
-                            hubModules = viewModel.hubModules,
-                            voiceListening = voiceState.isListening,
-                            voicePartial = voiceState.partialTranscript,
-                            onSelectHubIndex = viewModel::selectHubIndex,
-                            onOpenModule = viewModel::openModule,
-                            onLaunchAppFullscreen = viewModel::launchAppWithLeftDialMode,
-                            onAskStxAi = { q ->
-                                viewModel.sendAiPrompt(q, switchToAiView = false, openOverlay = true)
-                            },
-                            onVoiceCommand = ::launchVoiceCommand,
-                            onToggleWifi = viewModel::openWifiPanel,
-                            onToggleBluetooth = viewModel::openBluetoothPanel,
-                            onToggleFlash = viewModel::toggleFlashlight,
-                            onToggleLock = viewModel::toggleTouchLock,
-                            onSync = viewModel::syncHardwareAndApps,
-                            onToggleMute = viewModel::toggleMute,
-                            onFoldRotate = viewModel::cycleFoldMode,
-                            onSelectMode = viewModel::setMode,
-                            onLockDeck = { viewModel.engageLockCover() },
-                            onToggleFullscreen = {
-                                viewModel.setFullscreenImmersive(!state.preferences.fullscreenImmersive)
-                            },
-                            onOpenOrbStudio = { viewModel.openSettingsSection(SettingsSection.ORB_STUDIO) },
-                            onOpenPermissions = { viewModel.openSettingsSection(SettingsSection.PERMISSIONS) }
-                        )
-
-                        StarkMode.HUB -> LandscapeHubView(
-                            state = state,
-                            hubModules = viewModel.hubModules,
-                            voiceListening = voiceState.isListening,
-                            voicePartial = voiceState.partialTranscript,
-                            onSelectHubIndex = viewModel::selectHubIndex,
-                            onOpenModule = viewModel::openModule,
-                            onToggleWifi = viewModel::openWifiPanel,
-                            onToggleBluetooth = viewModel::openBluetoothPanel,
-                            onToggleFlash = viewModel::toggleFlashlight,
-                            onToggleLock = viewModel::toggleTouchLock,
-                            onSync = viewModel::syncHardwareAndApps,
-                            onToggleMute = viewModel::toggleMute,
-                            onVoiceCommand = ::launchVoiceCommand,
-                            onFoldRotate = viewModel::cycleFoldMode,
-                            onSelectMode = viewModel::setMode,
-                            onLockDeck = { viewModel.engageLockCover() },
-                            onToggleFullscreen = {
-                                viewModel.setFullscreenImmersive(!state.preferences.fullscreenImmersive)
-                            },
-                            onOpenOrbStudio = { viewModel.openSettingsSection(SettingsSection.ORB_STUDIO) }
-                        )
-
-                        StarkMode.HALF_DIAL -> HalfDialWorkspaceView(
-                            state = state,
-                            dialItems = viewModel.currentHalfDialItems(),
-                            onSelectSubIndex = viewModel::selectSubIndex,
-                            onSelectLeftDialLaunchMode = viewModel::setLeftDialLaunchMode,
-                            onLaunchWithLeftDialMode = viewModel::launchAppWithLeftDialMode,
-                            onFocusApp = viewModel::focusApp,
-                            onCenterBack = { viewModel.stepBackFromHalfDialCenter() },
-                            onOpenModule = viewModel::openModule,
-                            onLaunchWindowed = viewModel::launchAppWindowed,
-                            onLaunchFullscreen = viewModel::launchAppFullscreen,
-                            onTogglePin = viewModel::togglePinApp,
-                            onOpenAppInfo = viewModel::openAppInfo,
-                            onOpenDefaultLauncher = viewModel::openDefaultLauncherSettings,
-                            onReloadApps = viewModel::reloadInstalledApps,
-                            onSetCallsign = viewModel::setOperatorCallsign,
-                            onToggleSfx = viewModel::setSfxEnabled,
-                            onToggleMute = viewModel::toggleMute,
-                            onToggleFullscreen = viewModel::setFullscreenImmersive,
-                            onToggleKeepAwake = viewModel::setKeepScreenOn,
-                            onToggleAutoMorph = viewModel::setAutoMorphOrientation,
-                            onToggleEdgeColor = viewModel::setEdgeGlowCrimson,
-                            onToggleSystemFloatingAi = { desired -> setSystemFloatingAi(desired) },
-                            onPermissionsUpdated = viewModel::onPermissionsUpdated,
-                            onOpenWifiPanel = viewModel::openWifiPanel,
-                            onOpenBluetoothPanel = viewModel::openBluetoothPanel,
-                            onToggleTorch = viewModel::toggleFlashlight,
-                            onFlipCameraLens = viewModel::toggleCameraLens,
-                            onCameraZoomChange = viewModel::setCameraZoom,
-                            onAddVaultNote = viewModel::addVaultNote,
-                            onDeleteVaultNote = viewModel::deleteVaultNote,
-                            onStartVaultTimer = viewModel::startVaultTimer,
-                            onStopVaultTimer = viewModel::stopVaultTimer,
-                            onSearchQueryChange = viewModel::updateSearchQuery,
-                            onWebSearch = viewModel::openWebSearch,
-                            onAskStxAi = { q ->
-                                viewModel.sendAiPrompt(q, switchToAiView = false, openOverlay = true)
-                            },
-                            onSetLockCoverEnabled = viewModel::setLockCoverEnabled,
-                            onSetAutoLockOnScreenOff = viewModel::setAutoLockOnScreenOff,
-                            onSetBiometricUnlockEnabled = viewModel::setBiometricUnlockEnabled,
-                            onSetUseOsPhysicalLock = viewModel::setUseOsPhysicalLock,
-                            onSavePasscode = viewModel::savePasscode,
-                            onClearPasscode = viewModel::clearPasscode,
-                            onSetLockWidgets = viewModel::setLockWidgetVisibility,
-                            onSetLockHeadline = viewModel::setLockHeadline,
-                            onEngageLockNow = { viewModel.engageLockCover() },
-                            onToggleOrbUseHtml = viewModel::setOrbUseHtmlWebGl,
-                            onOrbRotationSpeedChange = viewModel::setOrbRotationSpeed,
-                            onOrbBloomStrengthChange = viewModel::setOrbBloomStrength,
-                            onOrbScaleChange = viewModel::setOrbScale,
-                            onToggleOrbAutoRotate = viewModel::setOrbAutoRotate,
-                            onToggleOrbShowTextNodes = viewModel::setOrbShowTextNodes,
-                            onToggleOrbShowDebris = viewModel::setOrbShowDebris,
-                            onToggleOrbSpeechGlowReactive = viewModel::setOrbSpeechGlowReactive,
-                            onResetOrbDefaults = viewModel::resetOrbDefaults
-                        )
-
-                        StarkMode.STX_AI -> StxAiView(
-                            state = state,
-                            voiceListening = voiceState.isListening,
-                            voicePartial = voiceState.partialTranscript,
-                            voiceRms = voiceState.rmsNormalized,
-                            onVoiceCommand = ::launchVoiceCommand,
-                            onSendPrompt = { q -> viewModel.sendAiPrompt(q, switchToAiView = false) },
-                            onWarmUpSpeech = viewModel::warmUpSpeech,
-                            onToggleTts = viewModel::toggleTtsEnabled,
-                            onAvatarTap = viewModel::onHologramAvatarTap,
-                            onToggleOrbMode = viewModel::setOrbUseHtmlWebGl,
-                            onBack = { viewModel.stepBackFromHalfDialCenter() }
-                        )
-                    }
-                }
-            }
-        }
-
-        // 3. Floating STX AI Corner Bot + Translucent Command Overlay (when unlocked)
-        if (!state.telemetry.touchLocked && state.mode != StarkMode.STX_AI) {
-            FloatingStxAiOverlay(
-                state = state,
-                voiceListening = voiceState.isListening,
-                voicePartial = voiceState.partialTranscript,
-                systemFloatingEnabled = state.preferences.systemFloatingAiEnabled,
-                canDrawOverlays = canDrawOverlays,
-                onToggleSystemFloating = {
-                    setSystemFloatingAi(!(state.preferences.systemFloatingAiEnabled && canDrawOverlays))
-                },
-                onToggleOverlay = viewModel::toggleStxOverlay,
-                onDismissOverlay = viewModel::closeStxOverlay,
-                onExpandFullStx = { viewModel.openModule(HubModule.STX_AI) },
-                onVoiceCommand = ::launchVoiceCommand,
-                onSendCommand = { cmd ->
-                    viewModel.sendAiPrompt(cmd, switchToAiView = false, openOverlay = true)
-                }
-            )
-        }
-
-        // 4. Full-Screen Arc Reactor Lockscreen Cover (10s awake auto-sleep)
-        AnimatedVisibility(
-            visible = state.telemetry.touchLocked,
-            enter = fadeIn(tween(200)) + scaleIn(initialScale = 0.94f, animationSpec = tween(200)),
-            exit = fadeOut(tween(200)) + scaleOut(targetScale = 1.05f, animationSpec = tween(200))
-        ) {
-            LockscreenCoverOverlay(
-                state = state,
-                onAttemptPasscode = { code ->
-                    val ok = viewModel.unlockWithPasscode(code)
-                    if (ok) dismissNonSecureOsKeyguard()
-                    ok
-                },
-                onBiometricAuthenticated = {
-                    viewModel.unlockSuccess()
-                    dismissNonSecureOsKeyguard()
-                },
-                onSwipeUnlock = {
-                    viewModel.unlockSuccess()
-                    dismissNonSecureOsKeyguard()
-                },
-                onClearError = viewModel::clearLockError,
-                onAskStxAi = viewModel::askStxAiOnLockscreen,
-                onDimChange = onSetWindowDimmed,
-                onIdleSleepTimeout = viewModel::onLockscreenIdleSleep
-            )
-        }
-
-        // 4b. Signature Arc Reactor Boot / Unlock Energy Pulse
-        if (!state.telemetry.touchLocked) {
-            ArcReactorBootPulse(
-                triggerKey = state.telemetry.touchLocked,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        // 5. Unmissable First-Launch / Missing Hardware Permissions Setup Overlay
+        val showBootSplash = state.preferencesLoaded && !state.preferences.firstBootCompleted
         val showStartupPerms = state.preferencesLoaded &&
+            state.preferences.firstBootCompleted &&
             !state.telemetry.touchLocked &&
             !startupPermDismissed &&
             (missingRuntimePerms.isNotEmpty() || !canDrawOverlays) &&
             !(state.mode == StarkMode.HALF_DIAL && state.activeModule == HubModule.SETTINGS)
+        val pauseHomeAnimations = state.allAppsDrawerOpen || state.telemetry.touchLocked || showStartupPerms
 
-        if (showStartupPerms) {
-            Box(
+        if (state.preferencesLoaded && !showBootSplash) {
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xBB010409))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {}
+                    .then(
+                        if (!state.preferences.fullscreenImmersive) {
+                            Modifier.windowInsetsPadding(WindowInsets.safeDrawing)
+                        } else {
+                            Modifier.padding(top = 6.dp, bottom = 2.dp)
+                        }
                     )
-                    .padding(16.dp)
-                    .testTag("startup_permissions_dialog"),
-                contentAlignment = Alignment.Center
             ) {
-                HudBracketCard(
+                val effectiveHomeMode = when {
+                    !state.preferences.autoMorphOrientation -> state.mode
+                    state.mode == StarkMode.HUB && !windowIsLandscape -> StarkMode.PORTRAIT
+                    state.mode == StarkMode.PORTRAIT && windowIsLandscape -> StarkMode.HUB
+                    else -> state.mode
+                }
+
+                if (effectiveHomeMode == StarkMode.HALF_DIAL || effectiveHomeMode == StarkMode.STX_AI) {
+                    TopHudBar(
+                        dayProgressFraction = state.clock.dayProgressFraction,
+                        timeText = state.clock.timeText,
+                        batteryPercent = state.telemetry.batteryPercent,
+                        isCharging = state.telemetry.isCharging,
+                        showBackToHub = true,
+                        onBackToHub = { viewModel.stepBackFromHalfDialCenter() }
+                    )
+                }
+
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    AnimatedContent(
+                        targetState = effectiveHomeMode,
+                        transitionSpec = { fadeIn(tween(150)).togetherWith(fadeOut(tween(110))) },
+                        label = "stx_screen_router"
+                    ) { targetMode ->
+                        when (targetMode) {
+                            StarkMode.PORTRAIT -> PortraitHomeScreen(
+                                state = state,
+                                hubModules = viewModel.hubModules,
+                                voiceListening = voiceState.isListening,
+                                voicePartial = voiceState.partialTranscript,
+                                onSelectHubIndex = viewModel::selectHubIndex,
+                                onOpenModule = viewModel::openModule,
+                                onLaunchAppFullscreen = viewModel::launchAppWithLeftDialMode,
+                                onAskStxAi = { q ->
+                                    viewModel.sendAiPrompt(q, switchToAiView = false, openOverlay = true)
+                                },
+                                onVoiceCommand = ::launchVoiceCommand,
+                                onToggleWifi = viewModel::openWifiPanel,
+                                onToggleBluetooth = viewModel::openBluetoothPanel,
+                                onToggleFlash = viewModel::toggleFlashlight,
+                                onToggleLock = viewModel::toggleTouchLock,
+                                onSync = viewModel::syncHardwareAndApps,
+                                onToggleMute = viewModel::toggleMute,
+                                onFoldRotate = viewModel::cycleFoldMode,
+                                onSelectMode = viewModel::setMode,
+                                onLockDeck = { viewModel.engageLockCover() },
+                                onToggleFullscreen = {
+                                    viewModel.setFullscreenImmersive(!state.preferences.fullscreenImmersive)
+                                },
+                                onOpenOrbStudio = { viewModel.openSettingsSection(SettingsSection.ORB_STUDIO) },
+                                onOpenPermissions = { viewModel.openSettingsSection(SettingsSection.PERMISSIONS) },
+                                onOpenAllAppsDrawer = viewModel::openAllAppsDrawer,
+                                onSelectProtocol = viewModel::selectProtocol,
+                                onStartTimer = viewModel::startVaultTimer,
+                                onStopTimer = viewModel::stopVaultTimer,
+                                pauseBackgroundAnimations = pauseHomeAnimations
+                            )
+
+                            StarkMode.HUB -> LandscapeHomeScreen(
+                                state = state,
+                                hubModules = viewModel.hubModules,
+                                voiceListening = voiceState.isListening,
+                                voicePartial = voiceState.partialTranscript,
+                                onSelectHubIndex = viewModel::selectHubIndex,
+                                onOpenModule = viewModel::openModule,
+                                onToggleWifi = viewModel::openWifiPanel,
+                                onToggleBluetooth = viewModel::openBluetoothPanel,
+                                onToggleFlash = viewModel::toggleFlashlight,
+                                onToggleLock = viewModel::toggleTouchLock,
+                                onSync = viewModel::syncHardwareAndApps,
+                                onToggleMute = viewModel::toggleMute,
+                                onVoiceCommand = ::launchVoiceCommand,
+                                onAskStxAi = { q ->
+                                    viewModel.sendAiPrompt(q, switchToAiView = false, openOverlay = true)
+                                },
+                                onFoldRotate = viewModel::cycleFoldMode,
+                                onSelectMode = viewModel::setMode,
+                                onLockDeck = { viewModel.engageLockCover() },
+                                onToggleFullscreen = {
+                                    viewModel.setFullscreenImmersive(!state.preferences.fullscreenImmersive)
+                                },
+                                onOpenOrbStudio = { viewModel.openSettingsSection(SettingsSection.ORB_STUDIO) },
+                                onLaunchAppFullscreen = viewModel::launchAppWithLeftDialMode,
+                                onOpenPermissions = { viewModel.openSettingsSection(SettingsSection.PERMISSIONS) },
+                                onOpenAllAppsDrawer = viewModel::openAllAppsDrawer,
+                                onSelectProtocol = viewModel::selectProtocol,
+                                onStartTimer = viewModel::startVaultTimer,
+                                onStopTimer = viewModel::stopVaultTimer,
+                                pauseBackgroundAnimations = pauseHomeAnimations
+                            )
+
+                            StarkMode.HALF_DIAL -> when (state.activeModule) {
+                                HubModule.APPS -> AppsScreen(
+                                    state = state,
+                                    dialItems = viewModel.currentHalfDialItems(),
+                                    onSelectSubIndex = viewModel::selectSubIndex,
+                                    onSelectLeftDialLaunchMode = viewModel::setLeftDialLaunchMode,
+                                    onLaunchWithLeftDialMode = viewModel::launchAppWithLeftDialMode,
+                                    onFocusApp = viewModel::focusApp,
+                                    onCenterBack = { viewModel.stepBackFromHalfDialCenter() },
+                                    onOpenModule = viewModel::openModule,
+                                    onLaunchWindowed = viewModel::launchAppWindowed,
+                                    onLaunchFullscreen = viewModel::launchAppFullscreen,
+                                    onTogglePin = viewModel::togglePinApp,
+                                    onOpenAppInfo = viewModel::openAppInfo
+                                )
+
+                                HubModule.BRIEF -> BriefScreen(
+                                    state = state,
+                                    focusedIndex = state.subItemIndex,
+                                    onSelectIndex = { idx -> viewModel.selectSubIndex(idx, 3) },
+                                    onBack = { viewModel.stepBackFromHalfDialCenter() },
+                                    onOpenApps = { viewModel.openModule(HubModule.APPS) },
+                                    onOpenSettings = { viewModel.openModule(HubModule.SETTINGS) },
+                                    onOpenStxAi = { viewModel.openModule(HubModule.STX_AI) },
+                                    onLaunchApp = viewModel::launchAppWithLeftDialMode
+                                )
+
+                                HubModule.HEALTH -> HealthScreen(
+                                    state = state,
+                                    focusedIndex = state.subItemIndex,
+                                    onSelectIndex = { idx -> viewModel.selectSubIndex(idx, 4) },
+                                    onBack = { viewModel.stepBackFromHalfDialCenter() },
+                                    onPermissionGranted = viewModel::onPermissionsUpdated
+                                )
+
+                                HubModule.WIFI -> WifiScreen(
+                                    state = state,
+                                    focusedIndex = state.subItemIndex,
+                                    onSelectIndex = { idx -> viewModel.selectSubIndex(idx, 5) },
+                                    onBack = { viewModel.stepBackFromHalfDialCenter() },
+                                    onOpenWifiPanel = viewModel::openWifiPanel,
+                                    onOpenBluetoothPanel = viewModel::openBluetoothPanel,
+                                    onPermissionsUpdated = viewModel::onPermissionsUpdated
+                                )
+
+                                HubModule.CAMERA -> CameraScreen(
+                                    state = state,
+                                    focusedIndex = state.subItemIndex,
+                                    onSelectIndex = { idx -> viewModel.selectSubIndex(idx, 4) },
+                                    onBack = { viewModel.stepBackFromHalfDialCenter() },
+                                    onToggleTorch = viewModel::toggleFlashlight,
+                                    onFlipLens = viewModel::toggleCameraLens,
+                                    onZoomChange = viewModel::setCameraZoom,
+                                    onPermissionGranted = viewModel::onPermissionsUpdated
+                                )
+
+                                HubModule.VAULT -> VaultScreen(
+                                    state = state,
+                                    focusedIndex = state.subItemIndex,
+                                    onSelectIndex = { idx -> viewModel.selectSubIndex(idx, 3) },
+                                    onBack = { viewModel.stepBackFromHalfDialCenter() },
+                                    onAddNote = viewModel::addVaultNote,
+                                    onDeleteNote = viewModel::deleteVaultNote,
+                                    onStartTimer = viewModel::startVaultTimer,
+                                    onStopTimer = viewModel::stopVaultTimer
+                                )
+
+                                HubModule.SEARCH -> SearchScreen(
+                                    state = state,
+                                    focusedIndex = state.subItemIndex,
+                                    onSelectIndex = { idx -> viewModel.selectSubIndex(idx, 3) },
+                                    onBack = { viewModel.stepBackFromHalfDialCenter() },
+                                    onQueryChange = viewModel::updateSearchQuery,
+                                    onLaunchFullscreen = viewModel::launchAppWithLeftDialMode,
+                                    onWebSearch = viewModel::openWebSearch,
+                                    onAskStxAi = { q ->
+                                        viewModel.sendAiPrompt(q, switchToAiView = false, openOverlay = true)
+                                    }
+                                )
+
+                                HubModule.SETTINGS -> SettingsScreen(
+                                    state = state,
+                                    focusedIndex = state.subItemIndex,
+                                    onSelectSection = { idx -> viewModel.selectSubIndex(idx, SettingsSection.entries.size) },
+                                    onBack = { viewModel.stepBackFromHalfDialCenter() },
+                                    onOpenDefaultLauncher = viewModel::openDefaultLauncherSettings,
+                                    onReloadApps = viewModel::reloadInstalledApps,
+                                    onSetCallsign = viewModel::setOperatorCallsign,
+                                    onToggleSfx = viewModel::setSfxEnabled,
+                                    onToggleMute = viewModel::toggleMute,
+                                    onToggleFullscreen = viewModel::setFullscreenImmersive,
+                                    onToggleKeepAwake = viewModel::setKeepScreenOn,
+                                    onToggleAutoMorph = viewModel::setAutoMorphOrientation,
+                                    onToggleEdgeColor = viewModel::setEdgeGlowCrimson,
+                                    onToggleSystemFloatingAi = { desired -> setSystemFloatingAi(desired) },
+                                    onPermissionsUpdated = viewModel::onPermissionsUpdated,
+                                    onSetLockCoverEnabled = viewModel::setLockCoverEnabled,
+                                    onSetAutoLockOnScreenOff = viewModel::setAutoLockOnScreenOff,
+                                    onSetBiometricUnlockEnabled = viewModel::setBiometricUnlockEnabled,
+                                    onSetUseOsPhysicalLock = viewModel::setUseOsPhysicalLock,
+                                    onSavePasscode = viewModel::savePasscode,
+                                    onClearPasscode = viewModel::clearPasscode,
+                                    onSetLockWidgets = viewModel::setLockWidgetVisibility,
+                                    onSetLockHeadline = viewModel::setLockHeadline,
+                                    onEngageLockNow = { viewModel.engageLockCover() },
+                                    onToggleOrbUseHtml = viewModel::setOrbUseHtmlWebGl,
+                                    onOrbRotationSpeedChange = viewModel::setOrbRotationSpeed,
+                                    onOrbBloomStrengthChange = viewModel::setOrbBloomStrength,
+                                    onOrbScaleChange = viewModel::setOrbScale,
+                                    onToggleOrbAutoRotate = viewModel::setOrbAutoRotate,
+                                    onToggleOrbShowTextNodes = viewModel::setOrbShowTextNodes,
+                                    onToggleOrbShowDebris = viewModel::setOrbShowDebris,
+                                    onToggleOrbSpeechGlowReactive = viewModel::setOrbSpeechGlowReactive,
+                                    onResetOrbDefaults = viewModel::resetOrbDefaults,
+                                    onOpenStxAiCore = { viewModel.openModule(HubModule.STX_AI) },
+                                    onReplayFirstBoot = viewModel::replayFirstBoot
+                                )
+
+                                HubModule.STX_AI -> StxAiScreen(
+                                    state = state,
+                                    voiceListening = voiceState.isListening,
+                                    voicePartial = voiceState.partialTranscript,
+                                    voiceRms = voiceState.rmsNormalized,
+                                    onVoiceCommand = ::launchVoiceCommand,
+                                    onSendPrompt = { q -> viewModel.sendAiPrompt(q, switchToAiView = false) },
+                                    onWarmUpSpeech = viewModel::warmUpSpeech,
+                                    onToggleTts = viewModel::toggleTtsEnabled,
+                                    onAvatarTap = viewModel::onHologramAvatarTap,
+                                    onToggleOrbMode = viewModel::setOrbUseHtmlWebGl,
+                                    onBack = { viewModel.stepBackFromHalfDialCenter() }
+                                )
+                            }
+
+                            StarkMode.STX_AI -> StxAiScreen(
+                                state = state,
+                                voiceListening = voiceState.isListening,
+                                voicePartial = voiceState.partialTranscript,
+                                voiceRms = voiceState.rmsNormalized,
+                                onVoiceCommand = ::launchVoiceCommand,
+                                onSendPrompt = { q -> viewModel.sendAiPrompt(q, switchToAiView = false) },
+                                onWarmUpSpeech = viewModel::warmUpSpeech,
+                                onToggleTts = viewModel::toggleTtsEnabled,
+                                onAvatarTap = viewModel::onHologramAvatarTap,
+                                onToggleOrbMode = viewModel::setOrbUseHtmlWebGl,
+                                onBack = { viewModel.stepBackFromHalfDialCenter() }
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (!state.telemetry.touchLocked && state.mode != StarkMode.STX_AI && !state.allAppsDrawerOpen) {
+                StxFloatingBubbleOverlay(
+                    state = state,
+                    voiceListening = voiceState.isListening,
+                    voicePartial = voiceState.partialTranscript,
+                    systemFloatingEnabled = state.preferences.systemFloatingAiEnabled,
+                    canDrawOverlays = canDrawOverlays,
+                    onToggleSystemFloating = {
+                        setSystemFloatingAi(!(state.preferences.systemFloatingAiEnabled && canDrawOverlays))
+                    },
+                    onToggleOverlay = viewModel::toggleStxOverlay,
+                    onDismissOverlay = viewModel::closeStxOverlay,
+                    onExpandFullStx = { viewModel.openModule(HubModule.STX_AI) },
+                    onVoiceCommand = ::launchVoiceCommand,
+                    onSendCommand = { cmd ->
+                        viewModel.sendAiPrompt(cmd, switchToAiView = false, openOverlay = true)
+                    }
+                )
+            }
+
+            AnimatedVisibility(
+                visible = state.allAppsDrawerOpen && !state.telemetry.touchLocked,
+                enter = slideInVertically(
+                    animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                    initialOffsetY = { fullHeight -> fullHeight }
+                ) + fadeIn(animationSpec = tween(140)),
+                exit = slideOutVertically(
+                    animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+                    targetOffsetY = { fullHeight -> fullHeight }
+                ) + fadeOut(animationSpec = tween(120))
+            ) {
+                AllAppsScreen(
+                    installedApps = state.installedApps,
+                    topRecentApps = state.topRecentApps,
+                    appsLoading = state.appsLoading,
+                    onLaunchApp = { app ->
+                        viewModel.closeAllAppsDrawer()
+                        viewModel.launchAppWithLeftDialMode(app)
+                    },
+                    onLaunchWindowed = { app ->
+                        viewModel.closeAllAppsDrawer()
+                        viewModel.launchAppWindowed(app)
+                    },
+                    onLaunchFullscreen = { app ->
+                        viewModel.closeAllAppsDrawer()
+                        viewModel.launchAppFullscreen(app)
+                    },
+                    onTogglePin = viewModel::togglePinApp,
+                    onOpenAppInfo = viewModel::openAppInfo,
+                    onClose = viewModel::closeAllAppsDrawer
+                )
+            }
+
+            AnimatedVisibility(
+                visible = state.telemetry.touchLocked,
+                enter = fadeIn(tween(180)),
+                exit = fadeOut(tween(180))
+            ) {
+                LockscreenScreen(
+                    state = state,
+                    onAttemptPasscode = { code ->
+                        val ok = viewModel.unlockWithPasscode(code)
+                        if (ok) dismissNonSecureOsKeyguard()
+                        ok
+                    },
+                    onBiometricAuthenticated = {
+                        viewModel.unlockSuccess()
+                        dismissNonSecureOsKeyguard()
+                    },
+                    onSwipeUnlock = {
+                        viewModel.unlockSuccess()
+                        dismissNonSecureOsKeyguard()
+                    },
+                    onClearError = viewModel::clearLockError,
+                    onAskStxAi = viewModel::askStxAiOnLockscreen,
+                    onDimChange = onSetWindowDimmed,
+                    onIdleSleepTimeout = viewModel::onLockscreenIdleSleep
+                )
+            }
+
+            if (showStartupPerms) {
+                Box(
                     modifier = Modifier
-                        .widthIn(max = 460.dp)
-                        .fillMaxWidth(),
-                    borderColor = HudCrimson,
-                    contentPadding = 14.dp
+                        .fillMaxSize()
+                        .background(Color(0xCC010409))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {}
+                        )
+                        .padding(16.dp)
+                        .testTag("startup_permissions_dialog"),
+                    contentAlignment = Alignment.Center
                 ) {
                     Column(
                         modifier = Modifier
+                            .widthIn(max = 460.dp)
                             .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xF5040911))
+                            .border(1.2.dp, HudCrimson, RoundedCornerShape(8.dp))
+                            .padding(14.dp)
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.VerifiedUser,
-                                    contentDescription = "Launcher Permissions",
-                                    tint = HudCyan,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Column {
-                                    Text(
-                                        text = "STX OS // LAUNCHER PERMISSIONS",
-                                        fontFamily = OrbitronFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        color = HudIce
-                                    )
-                                    Text(
-                                        text = "ARM HARDWARE ACCESS SO NO FEATURE CRASHES",
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontSize = 8.5.sp,
-                                        color = HudAmber
-                                    )
-                                }
+                            Icon(Icons.Default.VerifiedUser, "Launcher Permissions", tint = HudCyan, modifier = Modifier.size(20.dp))
+                            Column {
+                                Text("STX OS // LAUNCHER PERMISSIONS", fontFamily = DisplayFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = HudIce)
+                                Text("ARM HARDWARE ACCESS SO NO FEATURE CRASHES", fontFamily = JetBrainsMonoFontFamily, fontSize = 8.5.sp, color = HudAmber)
                             }
                         }
 
                         permDialogNote?.let { note ->
-                            Text(
-                                text = note,
-                                fontFamily = JetBrainsMonoFontFamily,
-                                fontSize = 9.sp,
-                                color = HudAmber
-                            )
+                            Text(note, fontFamily = JetBrainsMonoFontFamily, fontSize = 9.sp, color = HudAmber)
                         }
 
                         permissionStatuses.forEach { perm ->
@@ -879,46 +965,20 @@ fun StarkOsRoot(
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(Color(0x99060E1A))
-                                    .border(
-                                        0.8.dp,
-                                        if (perm.granted) HudEmerald.copy(alpha = 0.45f) else HudCrimsonBorder,
-                                        RoundedCornerShape(4.dp)
-                                    )
+                                    .border(0.8.dp, if (perm.granted) HudEmerald.copy(alpha = 0.45f) else HudCrimsonBorder, RoundedCornerShape(4.dp))
                                     .then(
-                                        if (!perm.granted) {
-                                            Modifier.clickable {
-                                                launchRuntimePermissions(perm.permissions, userInitiated = true)
-                                            }
-                                        } else {
-                                            Modifier
-                                        }
+                                        if (!perm.granted) Modifier.clickable { launchRuntimePermissions(perm.permissions, userInitiated = true) }
+                                        else Modifier
                                     )
                                     .padding(horizontal = 10.dp, vertical = 6.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = perm.title,
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 9.5.sp,
-                                        color = HudIce
-                                    )
-                                    Text(
-                                        text = perm.description,
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontSize = 8.sp,
-                                        color = HudSilver
-                                    )
+                                    Text(perm.title, fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, color = HudIce)
+                                    Text(perm.description, fontFamily = JetBrainsMonoFontFamily, fontSize = 8.sp, color = HudSilver)
                                 }
-                                Text(
-                                    text = if (perm.granted) "ARMED" else "GRANT >",
-                                    fontFamily = JetBrainsMonoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 9.sp,
-                                    color = if (perm.granted) HudEmerald else HudCrimson
-                                )
+                                Text(if (perm.granted) "ARMED" else "GRANT >", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.sp, color = if (perm.granted) HudEmerald else HudCrimson)
                             }
                         }
 
@@ -930,26 +990,15 @@ fun StarkOsRoot(
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(HudCyanSubtle)
                                     .border(1.dp, HudCyan, RoundedCornerShape(4.dp))
-                                    .clickable {
-                                        launchRuntimePermissions(missingRuntimePerms, userInitiated = true)
-                                    }
+                                    .clickable { launchRuntimePermissions(missingRuntimePerms, userInitiated = true) }
                                     .testTag("startup_grant_all_btn"),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = "GRANT ALL PERMISSIONS (${missingRuntimePerms.size})",
-                                    fontFamily = JetBrainsMonoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 10.5.sp,
-                                    color = HudIce
-                                )
+                                Text("GRANT ALL PERMISSIONS (${missingRuntimePerms.size})", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, color = HudIce)
                             }
                         }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             if (!canDrawOverlays) {
                                 Box(
                                     modifier = Modifier
@@ -962,13 +1011,7 @@ fun StarkOsRoot(
                                         .padding(horizontal = 6.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        text = "OVERLAY",
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 9.sp,
-                                        color = HudIce
-                                    )
+                                    Text("OVERLAY", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.sp, color = HudIce)
                                 }
                             }
                             Box(
@@ -978,20 +1021,12 @@ fun StarkOsRoot(
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(Color(0x9906121E))
                                     .border(1.dp, HudAmber.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
-                                    .clickable {
-                                        LauncherPermissionManager.openAppPermissionSettings(context)
-                                    }
+                                    .clickable { LauncherPermissionManager.openAppPermissionSettings(context) }
                                     .padding(horizontal = 6.dp)
                                     .testTag("startup_app_settings_btn"),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = "APP SETTINGS",
-                                    fontFamily = JetBrainsMonoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 9.sp,
-                                    color = HudAmber
-                                )
+                                Text("APP SETTINGS", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.sp, color = HudAmber)
                             }
                             Box(
                                 modifier = Modifier
@@ -1007,13 +1042,7 @@ fun StarkOsRoot(
                                     .padding(horizontal = 6.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = "PERMS PANEL",
-                                    fontFamily = JetBrainsMonoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 9.sp,
-                                    color = HudCyan
-                                )
+                                Text("PERMS PANEL", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.sp, color = HudCyan)
                             }
                             Box(
                                 modifier = Modifier
@@ -1030,13 +1059,7 @@ fun StarkOsRoot(
                                     .testTag("startup_skip_perms_btn"),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = "LATER",
-                                    fontFamily = JetBrainsMonoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 9.sp,
-                                    color = HudSilver
-                                )
+                                Text("LATER", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.sp, color = HudSilver)
                             }
                         }
                     }
@@ -1044,7 +1067,17 @@ fun StarkOsRoot(
             }
         }
 
-        // 5b. Transient Status Toast Banner (topmost layer above overlays)
+        AnimatedVisibility(
+            visible = showBootSplash,
+            enter = fadeIn(tween(140)),
+            exit = fadeOut(tween(220))
+        ) {
+            BootScreen(
+                preferences = state.preferences,
+                onBootComplete = { viewModel.markFirstBootCompleted() }
+            )
+        }
+
         AnimatedVisibility(
             visible = state.statusBanner != null,
             enter = fadeIn(tween(150)),
@@ -1070,10 +1103,79 @@ fun StarkOsRoot(
             }
         }
 
-        // 6. Full-Screen All-4-Edges Flashlight Perimeter Glow
-        EdgeFlashOverlay(
-            active = state.telemetry.flashlightOn,
-            crimsonMode = state.preferences.edgeGlowCrimson
-        )
+        if (state.telemetry.flashlightOn) {
+            val edgeColor = if (state.preferences.edgeGlowCrimson) HudCrimson else HudCyan
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                if (size.width <= 4f || size.height <= 4f) return@Canvas
+                drawRect(
+                    color = edgeColor.copy(alpha = 0.85f),
+                    topLeft = Offset(3.dp.toPx(), 3.dp.toPx()),
+                    size = Size(size.width - 6.dp.toPx(), size.height - 6.dp.toPx()),
+                    style = Stroke(width = 5.dp.toPx())
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun TopHudBar(
+    dayProgressFraction: Float,
+    timeText: String,
+    batteryPercent: Int,
+    isCharging: Boolean,
+    showBackToHub: Boolean,
+    onBackToHub: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        if (showBackToHub) {
+            Box(
+                modifier = Modifier
+                    .heightIn(min = 32.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(HudCrimsonSubtle)
+                    .border(1.dp, HudCrimsonBorder, RoundedCornerShape(4.dp))
+                    .clickable(onClick = onBackToHub)
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .testTag("top_bar_back_to_hub"),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("< HUB", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = HudIce)
+            }
+        }
+
+        Canvas(
+            modifier = Modifier
+                .weight(1f)
+                .height(16.dp)
+        ) {
+            if (size.width <= 4f || size.height <= 4f) return@Canvas
+            val barY = size.height * 0.55f
+            val frac = dayProgressFraction.coerceIn(0f, 1f)
+            val fillX = size.width * frac
+            drawLine(HudDivider, Offset(0f, barY), Offset(size.width, barY), 1.5.dp.toPx())
+            drawLine(HudCrimson, Offset(0f, barY), Offset(fillX, barY), 2.dp.toPx())
+            drawCircle(HudIce, radius = 3.dp.toPx(), center = Offset(fillX, barY))
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(timeText, fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 11.5.sp, color = HudIce)
+            Text(
+                text = "$batteryPercent%",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.5.sp,
+                color = if (isCharging) HudEmerald else HudCyan
+            )
+            if (isCharging) {
+                Icon(Icons.Default.Bolt, "Charging", tint = HudEmerald, modifier = Modifier.size(13.dp))
+            }
+        }
+    }
+}

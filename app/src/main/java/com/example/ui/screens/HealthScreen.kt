@@ -1,7 +1,6 @@
 package com.example.ui.screens
 
 import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,20 +12,26 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +47,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -49,15 +55,12 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.hardware.LauncherPermissionManager
 import com.example.ui.StarkUiState
-import com.example.ui.components.CarouselSpecRow
-import com.example.ui.components.HolographicCardCarousel
-import com.example.ui.components.HolographicCardHeader
-import com.example.ui.components.HolographicSideCardFooter
 import com.example.ui.theme.HudCrimson
 import com.example.ui.theme.HudCrimsonBorder
 import com.example.ui.theme.HudCrimsonSubtle
 import com.example.ui.theme.HudCyan
 import com.example.ui.theme.HudCyanBorder
+import com.example.ui.theme.HudCyanSubtle
 import com.example.ui.theme.HudDivider
 import com.example.ui.theme.HudEmerald
 import com.example.ui.theme.HudIce
@@ -69,8 +72,9 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-private data class HealthDeckCard(
+private data class HealthPage(
     val id: String,
+    val code: String,
     val title: String,
     val subtitle: String,
     val badge: String,
@@ -82,6 +86,7 @@ fun HealthScreen(
     state: StarkUiState,
     focusedIndex: Int,
     onSelectIndex: (Int) -> Unit,
+    onBack: () -> Unit = {},
     onPermissionGranted: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -117,83 +122,149 @@ fun HealthScreen(
         state.telemetry.batteryPercent
     ) {
         listOf(
-            HealthDeckCard(
-                id = "steps",
-                title = "PEDOMETER & ACCEL",
-                subtitle = "01 KINETIC // MOTION SENSOR",
-                badge = "${state.telemetry.stepsCount} STEPS"
-            ),
-            HealthDeckCard(
-                id = "gyro",
-                title = "3-AXIS GYROSCOPE",
-                subtitle = "02 ANGULAR // LIVE WAVEFORM",
-                badge = "RAD/S"
-            ),
-            HealthDeckCard(
-                id = "compass",
-                title = "MAGNETIC COMPASS",
-                subtitle = "03 ORIENTATION // AZIMUTH",
-                badge = "${state.telemetry.cardinalDirection} ${state.telemetry.azimuthDeg}°"
-            ),
-            HealthDeckCard(
-                id = "power",
-                title = "POWER & THERMAL",
-                subtitle = "04 VITALS // CELL & LUX",
-                badge = "${state.telemetry.batteryPercent}%",
-                isCrimson = true
-            )
+            HealthPage("steps", "01", "PEDOMETER & ACCEL", "KINETIC MOTION SENSOR", "${state.telemetry.stepsCount} STEPS"),
+            HealthPage("gyro", "02", "3-AXIS GYROSCOPE", "ANGULAR WAVEFORM", "RAD/S"),
+            HealthPage("compass", "03", "MAGNETIC COMPASS", "AZIMUTH BEARING", "${state.telemetry.cardinalDirection} ${state.telemetry.azimuthDeg}°"),
+            HealthPage("power", "04", "POWER & THERMAL", "BATTERY CELL & LUX", "${state.telemetry.batteryPercent}%", true)
         )
     }
 
-    HolographicCardCarousel(
-        items = cards,
-        focusedIndex = focusedIndex,
-        onSelectIndex = onSelectIndex,
-        itemKey = { _, card -> card.id },
-        isCrimsonAccent = { _, card, _ -> card.isCrimson },
-        modifier = modifier
-    ) { idx, card, isCenter, isCompactStage, isShortStage, relOffset ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(if (isCenter) Modifier.testTag("carousel_card_${card.id}") else Modifier),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            HolographicCardHeader(
-                index = idx,
-                totalCount = cards.size,
-                moduleLabel = "HEALTH",
-                title = card.title,
-                subtitle = card.subtitle,
-                badge = card.badge,
-                isCenter = isCenter,
-                isCompactStage = isCompactStage,
-                crimsonBadge = card.isCrimson
-            )
+    val safeIndex = focusedIndex.coerceIn(0, cards.lastIndex)
+    val pagerState = rememberPagerState(initialPage = safeIndex, pageCount = { cards.size })
+    LaunchedEffect(safeIndex) {
+        if (!pagerState.isScrollInProgress && pagerState.currentPage != safeIndex) {
+            pagerState.scrollToPage(safeIndex)
+        }
+    }
+    LaunchedEffect(pagerState.settledPage) {
+        if (pagerState.settledPage != safeIndex) {
+            onSelectIndex(pagerState.settledPage)
+        }
+    }
 
-            if (isCenter) {
-                Column(
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0xD8050A12))
+                .border(1.dp, HudCyanBorder, RoundedCornerShape(6.dp))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .heightIn(min = 32.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(HudCrimsonSubtle)
+                    .border(1.dp, HudCrimsonBorder, RoundedCornerShape(4.dp))
+                    .clickable(onClick = onBack)
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .testTag("half_dial_center_back"),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("< BACK", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, color = HudIce)
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                Text("HEALTH & SENSORS", fontFamily = OrbitronFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = HudIce)
+                Text("${cards[safeIndex].code} // ${cards[safeIndex].subtitle}", fontFamily = JetBrainsMonoFontFamily, fontSize = 8.sp, color = HudCyan)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(HudCyanSubtle)
+                        .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
+                        .clickable { onSelectIndex((safeIndex - 1 + cards.size) % cards.size) }
+                        .testTag("carousel_prev_button"),
+                    contentAlignment = Alignment.Center
+                ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous health card", tint = HudCyan, modifier = Modifier.size(16.dp)) }
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(HudCyanSubtle)
+                        .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
+                        .clickable { onSelectIndex((safeIndex + 1) % cards.size) }
+                        .testTag("carousel_next_button"),
+                    contentAlignment = Alignment.Center
+                ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next health card", tint = HudCyan, modifier = Modifier.size(16.dp)) }
+            }
+        }
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            cards.forEachIndexed { idx, c ->
+                val sel = idx == safeIndex
+                Box(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(vertical = 8.dp),
+                        .heightIn(min = 34.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (sel) HudCyanSubtle else Color(0x8806101B))
+                        .border(1.dp, if (sel) HudCyan else HudDivider, RoundedCornerShape(4.dp))
+                        .clickable { onSelectIndex(idx) }
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("${c.code} ${c.id.uppercase()}", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 8.5.sp, color = if (sel) HudIce else HudSilver, maxLines = 1)
+                }
+            }
+        }
+
+        HorizontalPager(
+            state = pagerState,
+            key = { cards[it].id },
+            modifier = Modifier.weight(1f).fillMaxWidth()
+        ) { page ->
+            val card = cards[page]
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xEB040911))
+                    .border(1.2.dp, if (card.isCrimson) HudCrimsonBorder else HudCyanBorder, RoundedCornerShape(8.dp))
+                    .padding(14.dp)
+                    .then(if (page == pagerState.currentPage) Modifier.testTag("carousel_card_${card.id}") else Modifier),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text(card.title, fontFamily = OrbitronFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = HudIce)
+                        Text("${card.code} // ${card.subtitle}", fontFamily = JetBrainsMonoFontFamily, fontSize = 8.5.sp, color = HudCyan)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(if (card.isCrimson) HudCrimsonSubtle else HudCyanSubtle)
+                            .border(0.8.dp, if (card.isCrimson) HudCrimsonBorder else HudCyanBorder, RoundedCornerShape(3.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(card.badge, fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 8.5.sp, color = HudIce)
+                    }
+                }
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(HudCyan.copy(alpha = 0.22f)))
+
+                Column(
+                    modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     when (card.id) {
                         "steps" -> {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column {
                                     Text("DAILY STEPS", fontFamily = JetBrainsMonoFontFamily, fontSize = 9.sp, color = HudSlate)
                                     Text(
                                         text = if (state.telemetry.stepsSensorAvailable) "${state.telemetry.stepsCount}" else "NO STEP HW",
                                         fontFamily = OrbitronFontFamily,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = if (isCompactStage) 20.sp else 26.sp,
+                                        fontSize = 24.sp,
                                         color = HudCyan
                                     )
                                 }
@@ -213,41 +284,22 @@ fun HealthScreen(
                                     }
                                 }
                             }
-
                             LinearProgressIndicator(
                                 progress = { (state.telemetry.stepsCount / 10000f).coerceIn(0f, 1f) },
                                 color = HudCyan,
                                 trackColor = Color(0xFF0A1624),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(6.dp)
-                                    .clip(RoundedCornerShape(3.dp))
+                                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
                             )
-
-                            val accelMag = sqrt(
-                                state.telemetry.accelX * state.telemetry.accelX +
-                                    state.telemetry.accelY * state.telemetry.accelY +
-                                    state.telemetry.accelZ * state.telemetry.accelZ
-                            )
-                            CarouselSpecRow(
-                                label = "ACCELEROMETER X/Y/Z",
-                                value = "${"%.1f".format(state.telemetry.accelX)}, ${"%.1f".format(state.telemetry.accelY)}, ${"%.1f".format(state.telemetry.accelZ)} m/s²",
-                                valueColor = HudSilver,
-                                compact = isCompactStage
-                            )
-                            CarouselSpecRow(
-                                label = "TOTAL G-MAGNITUDE",
-                                value = "${"%.2f".format(accelMag)} m/s²",
-                                valueColor = HudIce,
-                                compact = isCompactStage
-                            )
+                            val accelMag = sqrt(state.telemetry.accelX * state.telemetry.accelX + state.telemetry.accelY * state.telemetry.accelY + state.telemetry.accelZ * state.telemetry.accelZ)
+                            HealthSpecRow("ACCELEROMETER X/Y/Z", "${"%.1f".format(state.telemetry.accelX)}, ${"%.1f".format(state.telemetry.accelY)}, ${"%.1f".format(state.telemetry.accelZ)} m/s²", HudSilver)
+                            HealthSpecRow("TOTAL G-MAGNITUDE", "${"%.2f".format(accelMag)} m/s²", HudIce)
                         }
 
                         "gyro" -> {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(if (isShortStage) 64.dp else 96.dp)
+                                    .height(96.dp)
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(Color(0xFF03080F))
                                     .border(1.dp, HudDivider, RoundedCornerShape(4.dp))
@@ -263,106 +315,45 @@ fun HealthScreen(
                                             val y = size.height - ((v / maxVal).coerceIn(0f, 1f) * size.height * 0.85f) - 4f
                                             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
                                         }
-                                        drawPath(
-                                            path = path,
-                                            color = HudCrimson,
-                                            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
-                                        )
+                                        drawPath(path = path, color = HudCrimson, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
                                     } else {
-                                        drawLine(
-                                            color = HudCyan.copy(alpha = 0.45f),
-                                            start = Offset(0f, size.height / 2f),
-                                            end = Offset(size.width, size.height / 2f),
-                                            strokeWidth = 1.5.dp.toPx()
-                                        )
+                                        drawLine(HudCyan.copy(alpha = 0.45f), Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f), 1.5.dp.toPx())
                                     }
                                 }
-                                Text(
-                                    text = "LIVE GYRO MAGNITUDE (RAD/S)",
-                                    fontFamily = JetBrainsMonoFontFamily,
-                                    fontSize = 8.5.sp,
-                                    color = HudSlate,
-                                    modifier = Modifier.align(Alignment.TopStart)
-                                )
+                                Text("LIVE GYRO MAGNITUDE (RAD/S)", fontFamily = JetBrainsMonoFontFamily, fontSize = 8.5.sp, color = HudSlate, modifier = Modifier.align(Alignment.TopStart))
                             }
-
-                            val gyroMag = sqrt(
-                                state.telemetry.gyroX * state.telemetry.gyroX +
-                                    state.telemetry.gyroY * state.telemetry.gyroY +
-                                    state.telemetry.gyroZ * state.telemetry.gyroZ
-                            )
-                            CarouselSpecRow(
-                                label = "AXIS X / Y / Z",
-                                value = "${"%.2f".format(state.telemetry.gyroX)}, ${"%.2f".format(state.telemetry.gyroY)}, ${"%.2f".format(state.telemetry.gyroZ)}",
-                                valueColor = HudCrimson,
-                                compact = isCompactStage
-                            )
-                            CarouselSpecRow(
-                                label = "ROTATION RATE",
-                                value = "${"%.3f".format(gyroMag)} rad/s",
-                                valueColor = HudCyan,
-                                compact = isCompactStage
-                            )
+                            val gyroMag = sqrt(state.telemetry.gyroX * state.telemetry.gyroX + state.telemetry.gyroY * state.telemetry.gyroY + state.telemetry.gyroZ * state.telemetry.gyroZ)
+                            HealthSpecRow("AXIS X / Y / Z", "${"%.2f".format(state.telemetry.gyroX)}, ${"%.2f".format(state.telemetry.gyroY)}, ${"%.2f".format(state.telemetry.gyroZ)}", HudCrimson)
+                            HealthSpecRow("ROTATION RATE", "${"%.3f".format(gyroMag)} rad/s", HudCyan)
                         }
 
                         "compass" -> {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CompassMiniRadar(
-                                    azimuthDeg = state.telemetry.azimuthDeg,
-                                    modifier = Modifier.size(if (isShortStage) 64.dp else 88.dp)
-                                )
-                                Column(
-                                    modifier = Modifier.weight(1f),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text(
-                                        text = "${state.telemetry.cardinalDirection} ${state.telemetry.azimuthDeg}°",
-                                        fontFamily = OrbitronFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = if (isCompactStage) 18.sp else 24.sp,
-                                        color = HudIce
-                                    )
-                                    Text(
-                                        text = "MAGNETIC BEARING",
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontSize = 9.sp,
-                                        color = HudCyan
-                                    )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Canvas(modifier = Modifier.size(88.dp)) {
+                                    val r = size.minDimension / 2f
+                                    val c = Offset(size.width / 2f, size.height / 2f)
+                                    drawCircle(Color(0xFF07131E), radius = r, center = c)
+                                    drawCircle(HudCyan.copy(alpha = 0.55f), radius = r, center = c, style = Stroke(1.5f))
+                                    drawCircle(HudCrimson.copy(alpha = 0.40f), radius = r * 0.58f, center = c, style = Stroke(1.2f))
+                                    val rad = Math.toRadians((state.telemetry.azimuthDeg - 90).toDouble())
+                                    val tip = Offset(c.x + (r * 0.85f * cos(rad)).toFloat(), c.y + (r * 0.85f * sin(rad)).toFloat())
+                                    drawLine(HudCrimson, c, tip, strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                                    drawCircle(HudCyan, radius = 2.5.dp.toPx(), center = c)
+                                }
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("${state.telemetry.cardinalDirection} ${state.telemetry.azimuthDeg}°", fontFamily = OrbitronFontFamily, fontWeight = FontWeight.Bold, fontSize = 24.sp, color = HudIce)
+                                    Text("MAGNETIC BEARING", fontFamily = JetBrainsMonoFontFamily, fontSize = 9.sp, color = HudCyan)
                                 }
                             }
-                            CarouselSpecRow(
-                                label = "PITCH ATTITUDE",
-                                value = "${state.telemetry.pitchDeg}°",
-                                valueColor = HudCyan,
-                                compact = isCompactStage
-                            )
-                            CarouselSpecRow(
-                                label = "ROLL ATTITUDE",
-                                value = "${state.telemetry.rollDeg}°",
-                                valueColor = HudCrimson,
-                                compact = isCompactStage
-                            )
+                            HealthSpecRow("PITCH ATTITUDE", "${state.telemetry.pitchDeg}°", HudCyan)
+                            HealthSpecRow("ROLL ATTITUDE", "${state.telemetry.rollDeg}°", HudCrimson)
                         }
 
                         "power" -> {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column {
                                     Text("CORE CHARGE", fontFamily = JetBrainsMonoFontFamily, fontSize = 9.sp, color = HudSlate)
-                                    Text(
-                                        text = "${state.telemetry.batteryPercent}%",
-                                        fontFamily = OrbitronFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = if (isCompactStage) 20.sp else 26.sp,
-                                        color = HudEmerald
-                                    )
+                                    Text("${state.telemetry.batteryPercent}%", fontFamily = OrbitronFontFamily, fontWeight = FontWeight.Bold, fontSize = 26.sp, color = HudEmerald)
                                 }
                                 Box(
                                     modifier = Modifier
@@ -371,66 +362,28 @@ fun HealthScreen(
                                         .border(1.dp, if (state.telemetry.isCharging) HudCrimsonBorder else HudCyanBorder, RoundedCornerShape(4.dp))
                                         .padding(horizontal = 10.dp, vertical = 6.dp)
                                 ) {
-                                    Text(
-                                        text = state.telemetry.chargingSource,
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 9.5.sp,
-                                        color = HudIce
-                                    )
+                                    Text(state.telemetry.chargingSource, fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, color = HudIce)
                                 }
                             }
-
-                            CarouselSpecRow(
-                                label = "THERMAL / VOLT",
-                                value = "${state.telemetry.batteryTempC}°C · ${state.telemetry.batteryVoltageMv} mV",
-                                valueColor = HudCrimson,
-                                compact = isCompactStage
-                            )
-                            CarouselSpecRow(
-                                label = "CELL HEALTH",
-                                value = state.telemetry.batteryHealth,
-                                valueColor = HudEmerald,
-                                compact = isCompactStage
-                            )
-                            CarouselSpecRow(
-                                label = "AMBIENT LIGHT",
-                                value = if (state.telemetry.lightSensorAvailable) "${"%.0f".format(state.telemetry.ambientLux)} LUX" else "NO LIGHT HW",
-                                valueColor = HudCyan,
-                                compact = isCompactStage
-                            )
+                            HealthSpecRow("THERMAL / VOLT", "${state.telemetry.batteryTempC}°C · ${state.telemetry.batteryVoltageMv} mV", HudCrimson)
+                            HealthSpecRow("CELL HEALTH", state.telemetry.batteryHealth, HudEmerald)
+                            HealthSpecRow("AMBIENT LIGHT", if (state.telemetry.lightSensorAvailable) "${"%.0f".format(state.telemetry.ambientLux)} LUX" else "NO LIGHT HW", HudCyan)
                         }
                     }
                 }
-            } else {
-                Spacer(modifier = Modifier.weight(1f))
-                HolographicSideCardFooter(relOffset = relOffset)
             }
         }
     }
 }
 
 @Composable
-private fun CompassMiniRadar(
-    azimuthDeg: Int,
-    modifier: Modifier = Modifier
-) {
-    Canvas(modifier = modifier) {
-        val r = size.minDimension / 2f
-        val c = Offset(size.width / 2f, size.height / 2f)
-        drawCircle(color = Color(0xFF07131E), radius = r, center = c)
-        drawCircle(color = HudCyan.copy(alpha = 0.55f), radius = r, center = c, style = Stroke(1.5f))
-        drawCircle(color = HudCrimson.copy(alpha = 0.40f), radius = r * 0.58f, center = c, style = Stroke(1.2f))
-
-        val rad = Math.toRadians((azimuthDeg - 90).toDouble())
-        val tip = Offset(c.x + (r * 0.85f * cos(rad)).toFloat(), c.y + (r * 0.85f * sin(rad)).toFloat())
-        drawLine(
-            color = HudCrimson,
-            start = c,
-            end = tip,
-            strokeWidth = 2.dp.toPx(),
-            cap = StrokeCap.Round
-        )
-        drawCircle(color = HudCyan, radius = 2.5.dp.toPx(), center = c)
+private fun HealthSpecRow(label: String, value: String, valueColor: Color) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, fontFamily = JetBrainsMonoFontFamily, fontSize = 9.sp, color = HudSlate, maxLines = 1)
+        Text(value, fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, color = valueColor, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp))
     }
 }

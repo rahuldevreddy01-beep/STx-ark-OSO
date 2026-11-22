@@ -13,7 +13,7 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.applet.rlsxcu"
+    applicationId = "com.aistudio.applet.pjynfk"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
@@ -62,6 +62,7 @@ android {
   buildFeatures {
     compose = true
     buildConfig = true
+    aidl = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
   dependenciesInfo {
@@ -88,6 +89,8 @@ dependencies {
   // implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.biometric)
+  implementation(libs.shizuku.api)
+  implementation(libs.shizuku.provider)
   implementation(libs.androidx.camera.camera2)
   implementation(libs.androidx.camera.core)
   implementation(libs.androidx.camera.lifecycle)

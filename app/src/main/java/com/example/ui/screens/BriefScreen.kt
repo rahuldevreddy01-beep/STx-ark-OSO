@@ -15,10 +15,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Settings
@@ -27,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,10 +44,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.InstalledApp
 import com.example.ui.StarkUiState
-import com.example.ui.components.CarouselSpecRow
-import com.example.ui.components.HolographicCardCarousel
-import com.example.ui.components.HolographicCardHeader
-import com.example.ui.components.HolographicSideCardFooter
 import com.example.ui.theme.HudCrimson
 import com.example.ui.theme.HudCrimsonBorder
 import com.example.ui.theme.HudCrimsonSubtle
@@ -57,8 +58,9 @@ import com.example.ui.theme.HudSlate
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.OrbitronFontFamily
 
-private data class BriefDeckCard(
+private data class BriefPage(
     val id: String,
+    val code: String,
     val title: String,
     val subtitle: String,
     val badge: String,
@@ -70,6 +72,7 @@ fun BriefScreen(
     state: StarkUiState,
     focusedIndex: Int,
     onSelectIndex: (Int) -> Unit,
+    onBack: () -> Unit = {},
     onOpenApps: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenStxAi: () -> Unit,
@@ -79,234 +82,221 @@ fun BriefScreen(
     val pinnedApps = remember(state.installedApps, state.preferences.pinnedPackages) {
         state.installedApps.filter { it.isPinnedToDock }
     }
-
-    val cards = remember(
-        state.telemetry.ramUsedPercent,
-        pinnedApps.size,
-        state.clock.timeText
-    ) {
+    val cards = remember(state.telemetry.ramUsedPercent, pinnedApps.size, state.clock.timeText) {
         listOf(
-            BriefDeckCard(
-                id = "overview",
-                title = "EXECUTIVE BRIEF",
-                subtitle = "01 BRIEFING // LIVE SUMMARY",
-                badge = state.clock.timeText
-            ),
-            BriefDeckCard(
-                id = "hardware",
-                title = "SYSTEM TELEMETRY",
-                subtitle = "02 HARDWARE // LIVE VITALS",
-                badge = "${state.telemetry.ramUsedPercent}% RAM"
-            ),
-            BriefDeckCard(
-                id = "dock",
-                title = "PINNED ARC DOCK",
-                subtitle = "03 QUICK LAUNCH // STARRED APPS",
-                badge = "${pinnedApps.size} PINNED",
-                isCrimson = pinnedApps.isNotEmpty()
-            )
+            BriefPage("overview", "01", "EXECUTIVE BRIEF", "LIVE OS SUMMARY", state.clock.timeText),
+            BriefPage("hardware", "02", "SYSTEM TELEMETRY", "MEMORY & STORAGE", "${state.telemetry.ramUsedPercent}% RAM"),
+            BriefPage("dock", "03", "PINNED ARC DOCK", "STARRED SHORTCUTS", "${pinnedApps.size} PINNED", pinnedApps.isNotEmpty())
         )
     }
 
-    HolographicCardCarousel(
-        items = cards,
-        focusedIndex = focusedIndex,
-        onSelectIndex = onSelectIndex,
-        itemKey = { _, card -> card.id },
-        isCrimsonAccent = { _, card, _ -> card.isCrimson },
-        modifier = modifier
-    ) { idx, card, isCenter, isCompactStage, isShortStage, relOffset ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(if (isCenter) Modifier.testTag("carousel_card_${card.id}") else Modifier),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            HolographicCardHeader(
-                index = idx,
-                totalCount = cards.size,
-                moduleLabel = "BRIEF",
-                title = card.title,
-                subtitle = card.subtitle,
-                badge = card.badge,
-                isCenter = isCenter,
-                isCompactStage = isCompactStage,
-                crimsonBadge = card.isCrimson
-            )
+    val safeIndex = focusedIndex.coerceIn(0, cards.lastIndex)
+    val pagerState = rememberPagerState(initialPage = safeIndex, pageCount = { cards.size })
+    LaunchedEffect(safeIndex) {
+        if (!pagerState.isScrollInProgress && pagerState.currentPage != safeIndex) {
+            pagerState.scrollToPage(safeIndex)
+        }
+    }
+    LaunchedEffect(pagerState.settledPage) {
+        if (pagerState.settledPage != safeIndex) {
+            onSelectIndex(pagerState.settledPage)
+        }
+    }
 
-            if (isCenter) {
-                Column(
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0xD8050A12))
+                .border(1.dp, HudCyanBorder, RoundedCornerShape(6.dp))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .heightIn(min = 32.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(HudCrimsonSubtle)
+                    .border(1.dp, HudCrimsonBorder, RoundedCornerShape(4.dp))
+                    .clickable(onClick = onBack)
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .testTag("half_dial_center_back"),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("< BACK", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, color = HudIce)
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                Text("BRIEF", fontFamily = OrbitronFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = HudIce)
+                Text("${cards[safeIndex].code} // ${cards[safeIndex].subtitle}", fontFamily = JetBrainsMonoFontFamily, fontSize = 8.sp, color = HudCyan)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(HudCyanSubtle)
+                        .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
+                        .clickable { onSelectIndex((safeIndex - 1 + cards.size) % cards.size) }
+                        .testTag("carousel_prev_button"),
+                    contentAlignment = Alignment.Center
+                ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous brief card", tint = HudCyan, modifier = Modifier.size(16.dp)) }
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(HudCyanSubtle)
+                        .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
+                        .clickable { onSelectIndex((safeIndex + 1) % cards.size) }
+                        .testTag("carousel_next_button"),
+                    contentAlignment = Alignment.Center
+                ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next brief card", tint = HudCyan, modifier = Modifier.size(16.dp)) }
+            }
+        }
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            cards.forEachIndexed { idx, c ->
+                val sel = idx == safeIndex
+                Box(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(vertical = 8.dp),
+                        .heightIn(min = 34.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (sel) HudCyanSubtle else Color(0x8806101B))
+                        .border(1.dp, if (sel) HudCyan else HudDivider, RoundedCornerShape(4.dp))
+                        .clickable { onSelectIndex(idx) }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("${c.code} ${c.id.uppercase()}", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.sp, color = if (sel) HudIce else HudSilver, maxLines = 1)
+                }
+            }
+        }
+
+        HorizontalPager(
+            state = pagerState,
+            key = { cards[it].id },
+            modifier = Modifier.weight(1f).fillMaxWidth()
+        ) { page ->
+            val card = cards[page]
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xEB040911))
+                    .border(1.2.dp, if (card.isCrimson) HudCrimsonBorder else HudCyanBorder, RoundedCornerShape(8.dp))
+                    .padding(14.dp)
+                    .then(if (page == pagerState.currentPage) Modifier.testTag("carousel_card_${card.id}") else Modifier),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text(card.title, fontFamily = OrbitronFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = HudIce)
+                        Text("${card.code} // ${card.subtitle}", fontFamily = JetBrainsMonoFontFamily, fontSize = 8.5.sp, color = HudCyan)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(if (card.isCrimson) HudCrimsonSubtle else HudCyanSubtle)
+                            .border(0.8.dp, if (card.isCrimson) HudCrimsonBorder else HudCyanBorder, RoundedCornerShape(3.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(card.badge, fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 8.5.sp, color = HudIce)
+                    }
+                }
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(HudCyan.copy(alpha = 0.22f)))
+
+                Column(
+                    modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     when (card.id) {
                         "overview" -> {
-                            Text(
-                                text = "${state.clock.greeting}, ${state.preferences.operatorCallsign}",
-                                fontFamily = OrbitronFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = if (isCompactStage) 13.sp else 16.sp,
-                                color = HudCyan
-                            )
-                            Text(
-                                text = "${state.clock.dateText} · ${state.telemetry.deviceModel}",
-                                fontFamily = JetBrainsMonoFontFamily,
-                                fontSize = 9.5.sp,
-                                color = HudSilver
-                            )
-                            CarouselSpecRow(
-                                label = "POWER CELL",
-                                value = "${state.telemetry.batteryPercent}% (${state.telemetry.chargingSource})",
-                                valueColor = HudEmerald,
-                                compact = isCompactStage
-                            )
-                            CarouselSpecRow(
-                                label = "NETWORK LINK",
-                                value = "${state.telemetry.networkTransport} · ${state.telemetry.wifiSsid}",
-                                valueColor = HudCyan,
-                                compact = isCompactStage
-                            )
-                            CarouselSpecRow(
-                                label = "SENSORS & APPS",
-                                value = "${state.telemetry.stepsCount} STEPS · ${state.installedApps.size} APPS",
-                                valueColor = HudIce,
-                                compact = isCompactStage
-                            )
-
-                            if (!isShortStage) {
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            Text("${state.clock.greeting}, ${state.preferences.operatorCallsign}", fontFamily = OrbitronFontFamily, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = HudCyan)
+                            Text("${state.clock.dateText} · ${state.telemetry.deviceModel}", fontFamily = JetBrainsMonoFontFamily, fontSize = 9.5.sp, color = HudSilver)
+                            BriefSpecRow("POWER CELL", "${state.telemetry.batteryPercent}% (${state.telemetry.chargingSource})", HudEmerald)
+                            BriefSpecRow("NETWORK LINK", "${state.telemetry.networkTransport} · ${state.telemetry.wifiSsid}", HudCyan)
+                            BriefSpecRow("SENSORS & APPS", "${state.telemetry.stepsCount} STEPS · ${state.installedApps.size} APPS", HudIce)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 44.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(HudCyanSubtle)
+                                        .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
+                                        .clickable(onClick = onOpenApps)
+                                        .testTag("brief_open_apps_btn"),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .heightIn(min = 44.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(HudCyanSubtle)
-                                            .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
-                                            .clickable(onClick = onOpenApps)
-                                            .testTag("brief_open_apps_btn"),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Icon(Icons.Default.Apps, "Open apps", tint = HudCyan, modifier = Modifier.size(14.dp))
-                                            Text("APPS", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = HudIce)
-                                        }
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Icon(Icons.Default.Apps, "Open apps", tint = HudCyan, modifier = Modifier.size(14.dp))
+                                        Text("APPS", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = HudIce)
                                     }
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .heightIn(min = 44.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(HudCrimsonSubtle)
-                                            .border(1.dp, HudCrimsonBorder, RoundedCornerShape(4.dp))
-                                            .clickable(onClick = onOpenSettings)
-                                            .testTag("brief_open_settings_btn"),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Icon(Icons.Default.Settings, "Open settings", tint = HudCrimson, modifier = Modifier.size(14.dp))
-                                            Text("CONFIG", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = HudIce)
-                                        }
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 44.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(HudCrimsonSubtle)
+                                        .border(1.dp, HudCrimsonBorder, RoundedCornerShape(4.dp))
+                                        .clickable(onClick = onOpenSettings)
+                                        .testTag("brief_open_settings_btn"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Icon(Icons.Default.Settings, "Open settings", tint = HudCrimson, modifier = Modifier.size(14.dp))
+                                        Text("CONFIG", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = HudIce)
                                     }
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .heightIn(min = 44.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(Color(0x66061826))
-                                            .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
-                                            .clickable(onClick = onOpenStxAi)
-                                            .testTag("brief_open_stx_btn"),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text("STX AI", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = HudCyan)
-                                    }
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 44.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0x66061826))
+                                        .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
+                                        .clickable(onClick = onOpenStxAi)
+                                        .testTag("brief_open_stx_btn"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("STX AI", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = HudCyan)
                                 }
                             }
                         }
 
                         "hardware" -> {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("SYSTEM MEMORY", fontFamily = JetBrainsMonoFontFamily, fontSize = 9.sp, color = HudSlate)
-                                    Text(
-                                        "${state.telemetry.ramUsedMb} / ${state.telemetry.ramTotalMb} MB (${state.telemetry.ramUsedPercent}%)",
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 9.sp,
-                                        color = HudCyan
-                                    )
-                                }
-                                LinearProgressIndicator(
-                                    progress = { (state.telemetry.ramUsedPercent / 100f).coerceIn(0f, 1f) },
-                                    color = HudCyan,
-                                    trackColor = Color(0xFF0A1624),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(6.dp)
-                                        .clip(RoundedCornerShape(3.dp))
-                                )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("SYSTEM MEMORY", fontFamily = JetBrainsMonoFontFamily, fontSize = 9.sp, color = HudSlate)
+                                Text("${state.telemetry.ramUsedMb} / ${state.telemetry.ramTotalMb} MB (${state.telemetry.ramUsedPercent}%)", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.sp, color = HudCyan)
                             }
-
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("INTERNAL STORAGE", fontFamily = JetBrainsMonoFontFamily, fontSize = 9.sp, color = HudSlate)
-                                    Text(
-                                        "${"%.1f".format(state.telemetry.storageFreeGb)} GB FREE (${state.telemetry.storageUsedPercent}%)",
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 9.sp,
-                                        color = HudCrimson
-                                    )
-                                }
-                                LinearProgressIndicator(
-                                    progress = { (state.telemetry.storageUsedPercent / 100f).coerceIn(0f, 1f) },
-                                    color = HudCrimson,
-                                    trackColor = Color(0xFF14080D),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(6.dp)
-                                        .clip(RoundedCornerShape(3.dp))
-                                )
+                            LinearProgressIndicator(
+                                progress = { (state.telemetry.ramUsedPercent / 100f).coerceIn(0f, 1f) },
+                                color = HudCyan,
+                                trackColor = Color(0xFF0A1624),
+                                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
+                            )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("INTERNAL STORAGE", fontFamily = JetBrainsMonoFontFamily, fontSize = 9.sp, color = HudSlate)
+                                Text("${"%.1f".format(state.telemetry.storageFreeGb)} GB FREE (${state.telemetry.storageUsedPercent}%)", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.sp, color = HudCrimson)
                             }
-
-                            CarouselSpecRow(
-                                label = "THERMAL / VOLT",
-                                value = "${state.telemetry.batteryTempC}°C · ${state.telemetry.batteryVoltageMv} mV · ${state.telemetry.batteryHealth}",
-                                valueColor = HudEmerald,
-                                compact = isCompactStage
+                            LinearProgressIndicator(
+                                progress = { (state.telemetry.storageUsedPercent / 100f).coerceIn(0f, 1f) },
+                                color = HudCrimson,
+                                trackColor = Color(0xFF14080D),
+                                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
                             )
-                            CarouselSpecRow(
-                                label = "COMPUTE / OS",
-                                value = "${state.telemetry.cpuCores} CORES · ANDROID ${state.telemetry.androidVersion}",
-                                valueColor = HudIce,
-                                compact = isCompactStage
-                            )
-                            CarouselSpecRow(
-                                label = "SESSION UPTIME",
-                                value = state.telemetry.uptimeFormatted,
-                                valueColor = HudSilver,
-                                compact = isCompactStage
-                            )
+                            BriefSpecRow("THERMAL / VOLT", "${state.telemetry.batteryTempC}°C · ${state.telemetry.batteryVoltageMv} mV · ${state.telemetry.batteryHealth}", HudEmerald)
+                            BriefSpecRow("COMPUTE / OS", "${state.telemetry.cpuCores} CORES · ANDROID ${state.telemetry.androidVersion}", HudIce)
+                            BriefSpecRow("SESSION UPTIME", state.telemetry.uptimeFormatted, HudSilver)
                         }
 
                         "dock" -> {
@@ -317,24 +307,13 @@ fun BriefScreen(
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(Color(0x5506101B))
                                         .border(1.dp, HudDivider, RoundedCornerShape(4.dp))
-                                        .padding(12.dp),
+                                        .padding(14.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Icon(Icons.Default.Star, "Pinned dock", tint = HudCyan, modifier = Modifier.size(24.dp))
-                                    Text(
-                                        text = "NO APPS PINNED TO ARC DOCK YET",
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 10.sp,
-                                        color = HudIce
-                                    )
-                                    Text(
-                                        text = "Star apps in the Apps carousel to dock them here for instant launch.",
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontSize = 9.sp,
-                                        color = HudSlate
-                                    )
+                                    Text("NO APPS PINNED TO ARC DOCK YET", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = HudIce)
+                                    Text("Star apps in the Apps focus view to dock them here for instant launch.", fontFamily = JetBrainsMonoFontFamily, fontSize = 9.sp, color = HudSlate)
                                     Box(
                                         modifier = Modifier
                                             .heightIn(min = 40.dp)
@@ -370,11 +349,8 @@ fun BriefScreen(
                                                 .border(1.dp, HudCyanBorder, RoundedCornerShape(6.dp)),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            if (app.icon != null) {
-                                                Image(bitmap = app.icon, contentDescription = app.label, modifier = Modifier.size(22.dp))
-                                            } else {
-                                                Text(app.label.take(2).uppercase(), fontFamily = OrbitronFontFamily, fontSize = 10.sp, color = HudCyan)
-                                            }
+                                            if (app.icon != null) Image(bitmap = app.icon, contentDescription = app.label, modifier = Modifier.size(22.dp))
+                                            else Text(app.label.take(2).uppercase(), fontFamily = OrbitronFontFamily, fontSize = 10.sp, color = HudCyan)
                                         }
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(app.label.uppercase(), fontFamily = OrbitronFontFamily, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = HudIce, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -387,10 +363,19 @@ fun BriefScreen(
                         }
                     }
                 }
-            } else {
-                Spacer(modifier = Modifier.weight(1f))
-                HolographicSideCardFooter(relOffset = relOffset)
             }
         }
+    }
+}
+
+@Composable
+private fun BriefSpecRow(label: String, value: String, valueColor: Color) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, fontFamily = JetBrainsMonoFontFamily, fontSize = 9.sp, color = HudSlate, maxLines = 1)
+        Text(value, fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, color = valueColor, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp))
     }
 }

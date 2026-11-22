@@ -42,7 +42,7 @@ enum class SettingsSection(
     PERMISSIONS("04", "PERMISSIONS", "HARDWARE ACCESS"),
     DIAGNOSTICS("05", "DIAGNOSTICS", "DEVICE & STORAGE"),
     LOCKSCREEN("06", "LOCKSCREEN", "PASSCODE & WAKE"),
-    ORB_STUDIO("07", "ORB STUDIO", "3D HTML ORB & FX")
+    ORB_STUDIO("07", "ORB STUDIO", "3D ORB & MOTION")
 }
 
 data class DialWedgeItem(
@@ -157,6 +157,7 @@ data class LauncherPreferences(
     val appLaunchCounts: Map<String, Int> = emptyMap(),
     val appLastUsedMs: Map<String, Long> = emptyMap(),
     val permissionsOnboarded: Boolean = false,
+    val firstBootCompleted: Boolean = false,
     val orbUseHtmlWebGl: Boolean = true,
     val orbRotationSpeed: Float = 1.0f,
     val orbBloomStrength: Float = 1.1f,

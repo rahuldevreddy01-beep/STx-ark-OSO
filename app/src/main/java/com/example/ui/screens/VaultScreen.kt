@@ -7,12 +7,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -20,6 +22,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Icon
@@ -27,6 +31,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,9 +48,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.StarkUiState
-import com.example.ui.components.HolographicCardCarousel
-import com.example.ui.components.HolographicCardHeader
-import com.example.ui.components.HolographicSideCardFooter
 import com.example.ui.theme.HudCrimson
 import com.example.ui.theme.HudCrimsonBorder
 import com.example.ui.theme.HudCrimsonSubtle
@@ -60,8 +62,9 @@ import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.OrbitronFontFamily
 import com.example.ui.theme.RajdhaniFontFamily
 
-private data class VaultDeckCard(
+private data class VaultPage(
     val id: String,
+    val code: String,
     val title: String,
     val subtitle: String,
     val badge: String,
@@ -73,6 +76,7 @@ fun VaultScreen(
     state: StarkUiState,
     focusedIndex: Int,
     onSelectIndex: (Int) -> Unit,
+    onBack: () -> Unit = {},
     onAddNote: (String, String) -> Unit,
     onDeleteNote: (String) -> Unit,
     onStartTimer: (Int) -> Unit,
@@ -82,82 +86,144 @@ fun VaultScreen(
     var noteTitle by remember { mutableStateOf("") }
     var noteBody by remember { mutableStateOf("") }
 
-    val cards = remember(
-        state.preferences.vaultNotes.size,
-        state.vaultTimerRunning,
-        state.vaultTimerSeconds
-    ) {
+    val cards = remember(state.preferences.vaultNotes.size, state.vaultTimerRunning, state.vaultTimerSeconds) {
         listOf(
-            VaultDeckCard(
-                id = "notes",
-                title = "ENCRYPTED NOTES",
-                subtitle = "01 VAULT // DATASTORE",
-                badge = "${state.preferences.vaultNotes.size} SAVED"
-            ),
-            VaultDeckCard(
-                id = "timer",
-                title = "TACTICAL TIMER",
-                subtitle = "02 COUNTDOWN // CHRONO",
-                badge = if (state.vaultTimerRunning) "${state.vaultTimerSeconds}S" else "STANDBY",
-                isCrimson = state.vaultTimerRunning
-            ),
-            VaultDeckCard(
-                id = "compose",
-                title = "NEW VAULT ENTRY",
-                subtitle = "03 COMPOSER // SAVE LOCAL",
-                badge = "WRITE"
-            )
+            VaultPage("notes", "01", "ENCRYPTED NOTES", "DATASTORE LOCAL", "${state.preferences.vaultNotes.size} SAVED"),
+            VaultPage("timer", "02", "TACTICAL TIMER", "CHRONO COUNTDOWN", if (state.vaultTimerRunning) "${state.vaultTimerSeconds}S" else "STANDBY", state.vaultTimerRunning),
+            VaultPage("compose", "03", "NEW VAULT ENTRY", "SAVE LOCAL", "WRITE")
         )
     }
 
-    HolographicCardCarousel(
-        items = cards,
-        focusedIndex = focusedIndex,
-        onSelectIndex = onSelectIndex,
-        itemKey = { _, card -> card.id },
-        isCrimsonAccent = { _, card, _ -> card.isCrimson },
-        modifier = modifier
-    ) { idx, card, isCenter, isCompactStage, _, relOffset ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(if (isCenter) Modifier.testTag("carousel_card_${card.id}") else Modifier),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            HolographicCardHeader(
-                index = idx,
-                totalCount = cards.size,
-                moduleLabel = "VAULT",
-                title = card.title,
-                subtitle = card.subtitle,
-                badge = card.badge,
-                isCenter = isCenter,
-                isCompactStage = isCompactStage,
-                crimsonBadge = card.isCrimson
-            )
+    val safeIndex = focusedIndex.coerceIn(0, cards.lastIndex)
+    val pagerState = rememberPagerState(initialPage = safeIndex, pageCount = { cards.size })
+    LaunchedEffect(safeIndex) {
+        if (!pagerState.isScrollInProgress && pagerState.currentPage != safeIndex) {
+            pagerState.scrollToPage(safeIndex)
+        }
+    }
+    LaunchedEffect(pagerState.settledPage) {
+        if (pagerState.settledPage != safeIndex) {
+            onSelectIndex(pagerState.settledPage)
+        }
+    }
 
-            if (isCenter) {
-                Column(
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0xD8050A12))
+                .border(1.dp, HudCyanBorder, RoundedCornerShape(6.dp))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .heightIn(min = 32.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(HudCrimsonSubtle)
+                    .border(1.dp, HudCrimsonBorder, RoundedCornerShape(4.dp))
+                    .clickable(onClick = onBack)
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .testTag("half_dial_center_back"),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("< BACK", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, color = HudIce)
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                Text("VAULT", fontFamily = OrbitronFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = HudIce)
+                Text("${cards[safeIndex].code} // ${cards[safeIndex].subtitle}", fontFamily = JetBrainsMonoFontFamily, fontSize = 8.sp, color = HudCyan)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(HudCyanSubtle)
+                        .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
+                        .clickable { onSelectIndex((safeIndex - 1 + cards.size) % cards.size) }
+                        .testTag("carousel_prev_button"),
+                    contentAlignment = Alignment.Center
+                ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous vault card", tint = HudCyan, modifier = Modifier.size(16.dp)) }
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(HudCyanSubtle)
+                        .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
+                        .clickable { onSelectIndex((safeIndex + 1) % cards.size) }
+                        .testTag("carousel_next_button"),
+                    contentAlignment = Alignment.Center
+                ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next vault card", tint = HudCyan, modifier = Modifier.size(16.dp)) }
+            }
+        }
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            cards.forEachIndexed { idx, c ->
+                val sel = idx == safeIndex
+                Box(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(vertical = 8.dp),
+                        .heightIn(min = 34.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (sel) HudCyanSubtle else Color(0x8806101B))
+                        .border(1.dp, if (sel) HudCyan else HudDivider, RoundedCornerShape(4.dp))
+                        .clickable { onSelectIndex(idx) }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("${c.code} ${c.id.uppercase()}", fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 9.sp, color = if (sel) HudIce else HudSilver, maxLines = 1)
+                }
+            }
+        }
+
+        HorizontalPager(
+            state = pagerState,
+            key = { cards[it].id },
+            modifier = Modifier.weight(1f).fillMaxWidth()
+        ) { page ->
+            val card = cards[page]
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xEB040911))
+                    .border(1.2.dp, if (card.isCrimson) HudCrimsonBorder else HudCyanBorder, RoundedCornerShape(8.dp))
+                    .padding(14.dp)
+                    .then(if (page == pagerState.currentPage) Modifier.testTag("carousel_card_${card.id}") else Modifier),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text(card.title, fontFamily = OrbitronFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = HudIce)
+                        Text("${card.code} // ${card.subtitle}", fontFamily = JetBrainsMonoFontFamily, fontSize = 8.5.sp, color = HudCyan)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(if (card.isCrimson) HudCrimsonSubtle else HudCyanSubtle)
+                            .border(0.8.dp, if (card.isCrimson) HudCrimsonBorder else HudCyanBorder, RoundedCornerShape(3.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(card.badge, fontFamily = JetBrainsMonoFontFamily, fontWeight = FontWeight.Bold, fontSize = 8.5.sp, color = HudIce)
+                    }
+                }
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(HudCyan.copy(alpha = 0.22f)))
+
+                Column(
+                    modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     when (card.id) {
                         "notes" -> {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "${state.preferences.vaultNotes.size} PERSISTED ENTRIES",
-                                    fontFamily = JetBrainsMonoFontFamily,
-                                    fontSize = 9.5.sp,
-                                    color = HudSilver
-                                )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("${state.preferences.vaultNotes.size} PERSISTED ENTRIES", fontFamily = JetBrainsMonoFontFamily, fontSize = 9.5.sp, color = HudSilver)
                                 Box(
                                     modifier = Modifier
                                         .heightIn(min = 36.dp)
@@ -185,12 +251,7 @@ fun VaultScreen(
                                         .padding(14.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        text = "VAULT EMPTY — SWIPE TO 03 NEW NOTE TO LOG",
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontSize = 9.5.sp,
-                                        color = HudSlate
-                                    )
+                                    Text("VAULT EMPTY — SWIPE TO 03 COMPOSE TO LOG", fontFamily = JetBrainsMonoFontFamily, fontSize = 9.5.sp, color = HudSlate)
                                 }
                             } else {
                                 state.preferences.vaultNotes.forEach { note ->
@@ -221,15 +282,10 @@ fun VaultScreen(
                                 text = if (state.vaultTimerRunning) "%02d:%02d".format(state.vaultTimerSeconds / 60, state.vaultTimerSeconds % 60) else "00:00",
                                 fontFamily = OrbitronFontFamily,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = if (isCompactStage) 26.sp else 34.sp,
+                                fontSize = 34.sp,
                                 color = if (state.vaultTimerRunning) HudCrimson else HudCyan
                             )
-                            Text(
-                                text = if (state.vaultTimerRunning) "TACTICAL COUNTDOWN ACTIVE" else "SELECT DURATION TO ARM",
-                                fontFamily = JetBrainsMonoFontFamily,
-                                fontSize = 9.5.sp,
-                                color = if (state.vaultTimerRunning) HudCrimson else HudSlate
-                            )
+                            Text(if (state.vaultTimerRunning) "TACTICAL COUNTDOWN ACTIVE" else "SELECT DURATION TO ARM", fontFamily = JetBrainsMonoFontFamily, fontSize = 9.5.sp, color = if (state.vaultTimerRunning) HudCrimson else HudSlate)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                                 listOf(60 to "1M", 300 to "5M", 600 to "10M", 900 to "15M").forEach { (sec, label) ->
                                     Box(
@@ -285,7 +341,7 @@ fun VaultScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(min = 56.dp)
+                                    .heightIn(min = 60.dp)
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(Color(0xFF040A12))
                                     .border(1.dp, HudCyanBorder, RoundedCornerShape(4.dp))
@@ -332,9 +388,6 @@ fun VaultScreen(
                         }
                     }
                 }
-            } else {
-                Spacer(modifier = Modifier.weight(1f))
-                HolographicSideCardFooter(relOffset = relOffset)
             }
         }
     }

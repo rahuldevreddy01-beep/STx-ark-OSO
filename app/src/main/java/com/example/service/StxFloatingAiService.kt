@@ -46,7 +46,7 @@ import com.example.data.StxAction
 import com.example.hardware.MiuiFreeformLauncher
 import com.example.model.DeviceTelemetry
 import com.example.model.HubModule
-import com.example.ui.components.HologramBitmapProcessor
+import com.example.hardware.HologramBitmapProcessor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
