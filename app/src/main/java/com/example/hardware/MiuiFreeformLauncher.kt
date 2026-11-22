@@ -479,15 +479,6 @@ object MiuiFreeformLauncher {
                 Int::class.javaPrimitiveType
             )
             method.invoke(options, WINDOWING_MODE_FREEFORM)
-        }.onFailure {
-            runCatching {
-                val method = ActivityOptions::class.java.getDeclaredMethod(
-                    "setLaunchWindowingMode",
-                    Int::class.javaPrimitiveType
-                )
-                method.isAccessible = true
-                method.invoke(options, WINDOWING_MODE_FREEFORM)
-            }
         }
         return options
     }
