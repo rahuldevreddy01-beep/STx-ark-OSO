@@ -132,7 +132,7 @@ data class VaultNote(
 )
 
 data class LauncherPreferences(
-    val operatorCallsign: String = "SANJU",
+    val operatorCallsign: String = "STARK",
     val pinnedPackages: Set<String> = emptySet(),
     val mutedAlertPackages: Set<String> = emptySet(),
     val disabledSyncPackages: Set<String> = emptySet(),

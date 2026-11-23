@@ -87,7 +87,7 @@ class LauncherPreferencesRepository(private val context: Context) {
         val (usageCounts, usageLastMs) = decodeUsageStats(prefs[Keys.APP_USAGE_JSON])
 
         LauncherPreferences(
-            operatorCallsign = prefs[Keys.OPERATOR_CALLSIGN]?.ifBlank { "SANJU" } ?: "SANJU",
+            operatorCallsign = prefs[Keys.OPERATOR_CALLSIGN]?.ifBlank { "STARK" } ?: "STARK",
             pinnedPackages = prefs[Keys.PINNED_PACKAGES] ?: emptySet(),
             mutedAlertPackages = prefs[Keys.MUTED_ALERT_PACKAGES] ?: emptySet(),
             disabledSyncPackages = prefs[Keys.DISABLED_SYNC_PACKAGES] ?: emptySet(),
@@ -125,7 +125,7 @@ class LauncherPreferencesRepository(private val context: Context) {
     }
 
     suspend fun setOperatorCallsign(callsign: String) {
-        val clean = callsign.trim().uppercase().take(18).ifBlank { "SANJU" }
+        val clean = callsign.trim().uppercase().take(18).ifBlank { "STARK" }
         context.stxDataStore.edit { it[Keys.OPERATOR_CALLSIGN] = clean }
     }
 
