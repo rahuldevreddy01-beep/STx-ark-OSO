@@ -432,6 +432,56 @@ fun SettingsScreen(
                                 modifier = Modifier.fillMaxWidth().testTag("settings_replay_boot_btn"),
                                 onClick = onReplayFirstBoot
                             )
+                            // Legal & Compliance (Play Store Requirements)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0x6606101B))
+                                    .border(1.dp, HudCyanBorder, RoundedCornerShape(6.dp))
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "LEGAL & COMPLIANCE (PLAY STORE)",
+                                    fontFamily = OrbitronFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
+                                    color = HudCyan
+                                )
+                                Text(
+                                    text = "Official Play Store privacy and compliance documentation.",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 8.sp,
+                                    color = HudSilver
+                                )
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    SettingsActionButton(
+                                        label = "PRIVACY POLICY",
+                                        icon = Icons.Default.VerifiedUser,
+                                        crimson = false,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            runCatching {
+                                                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://gist.github.com/rahuldevreddy01-beep/68b0508f3189fe1ae084beac65a5acc6"))
+                                                context.startActivity(intent)
+                                            }
+                                        }
+                                    )
+                                    SettingsActionButton(
+                                        label = "TERMS & CONDITIONS",
+                                        icon = Icons.Default.Security,
+                                        crimson = false,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            runCatching {
+                                                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://gist.github.com/rahuldevreddy01-beep/945420d752a3063480307619ee394ac0"))
+                                                context.startActivity(intent)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
                             SettingsSwitchRow(
                                 title = "3D WIREFRAME ORB CORE",
                                 subtitle = "Render interactive 60fps Red+Blue orb inside Dial & STX AI",
